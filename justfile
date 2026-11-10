@@ -17,14 +17,14 @@ check:
 test:
     cargo test --workspace --target-dir target
 
-# Install shims and link to C:\src\depot_tools so depot is globally available on PATH
+# Install shims and link to C:\src\third_party\depot_tools so depot is globally available on PATH
 install-shims:
     @Write-Host "Installing depot_tools shims..." -ForegroundColor Cyan
-    @Set-Content -Path "C:\src\depot_tools\depot.bat" -Value '@"C:\src\depot\target\release\depot.exe" %*'
-    @Set-Content -Path "C:\src\depot_tools\gitingest.bat" -Value '@"C:\src\depot\target\release\gitingest.exe" %*'
-    @Set-Content -Path "C:\src\depot_tools\depot-graph.bat" -Value '@"C:\src\depot\target\release\depot-graph.exe" %*'
-    @Add-Content -Path "C:\src\depot_tools\.git\info\exclude" -Value "`ndepot.bat`ngitingest.bat`ndepot-graph.bat" -ErrorAction SilentlyContinue
-    @Write-Host "[OK] Shims installed in C:\src\depot_tools and excluded from git tracking." -ForegroundColor Green
+    @Set-Content -Path "C:\src\third_party\depot_tools\depot.bat" -Value '@"C:\src\crates\depot\target\release\depot.exe" %*'
+    @Set-Content -Path "C:\src\third_party\depot_tools\gitingest.bat" -Value '@"C:\src\crates\depot\target\release\gitingest.exe" %*'
+    @Set-Content -Path "C:\src\third_party\depot_tools\depot-graph.bat" -Value '@"C:\src\crates\depot\target\release\depot-graph.exe" %*'
+    @Add-Content -Path "C:\src\third_party\depot_tools\.git\info\exclude" -Value "`ndepot.bat`ngitingest.bat`ndepot-graph.bat" -ErrorAction SilentlyContinue
+    @Write-Host "[OK] Shims installed in C:\src\third_party\depot_tools and excluded from git tracking." -ForegroundColor Green
 
 # Ingest codebase and generate LLM digest (100x faster than python gitingest)
 ingest path="." format="markdown" max_tokens="":

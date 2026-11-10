@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
-use depot_core::{ForkManager, SyncStrategy};
+use depot_core::{ForkManager, SyncStrategy, StyleExt};
 
 pub fn run_fork_status(repo_path: PathBuf) -> Result<(), String> {
     let st = ForkManager::get_status(&repo_path)?;

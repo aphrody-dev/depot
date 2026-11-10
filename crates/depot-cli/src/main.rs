@@ -1,224 +1,350 @@
 use std::path::PathBuf;
-use clap::{Parser, Subcommand};
-use colored::Colorize;
+use argh::FromArgs;
+use depot_core::StyleExt;
 
 mod commands;
 use commands::*;
 
-#[derive(Parser)]
-#[command(name = "depot")]
-#[command(about = "Unified LLM-optimized monorepo manager fusing Google depot_tools, gitingest, graphify, and Git Scalar")]
-#[command(version = "0.1.0")]
+#[derive(FromArgs, PartialEq, Debug)]
+/// Unified LLM-optimized monorepo manager fusing Google depot_tools, gitingest, graphify, and Git Scalar
 struct Cli {
-    #[command(subcommand)]
-    command: Option<Commands>,
-
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    passthrough: Vec<String>,
+    #[argh(subcommand)]
+    command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
 enum Commands {
-    /// Ingest a codebase and output an LLM-ready prompt digest
-    Ingest {
-        /// Target directory to ingest (defaults to current directory)
-        #[arg(default_value = ".")]
-        path: PathBuf,
-
-        /// Format: markdown, xml, json
-        #[arg(short, long, default_value = "markdown")]
-        format: String,
-
-        /// Max token budget (clamps and prioritizes important files)
-        #[arg(short, long)]
-        max_tokens: Option<usize>,
-
-        /// Output file path (defaults to stdout)
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Include glob patterns
-        #[arg(short, long)]
-        include: Vec<String>,
-
-        /// Exclude glob patterns
-        #[arg(short, long)]
-        exclude: Vec<String>,
-    },
-
-    /// AST / dependency graph generator and query tool for LLMs
-    Graph {
-        #[command(subcommand)]
-        sub: GraphCommands,
-    },
-
-    /// Windows-safe worktree management without duplicating repo storage
-    #[command(alias = "wt")]
-    Worktree {
-        #[command(subcommand)]
-        sub: WorktreeCommands,
-    },
-
-    /// Fork and upstream tracking, divergence check, and fast-forward/rebase sync
-    Fork {
-        #[command(subcommand)]
-        sub: ForkCommands,
-    },
-
-    /// Apply Git Scalar, commit-graph, multi-pack-index, and fsmonitor to minimize git weight
-    Slim {
-        /// Target repository path (defaults to current directory)
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
-
-    /// Minimal blobless clone with automated Git Scalar configuration
-    Clone {
-        /// Git repository URL
-        url: String,
-
-        /// Destination path
-        dest: PathBuf,
-
-        /// Specific branch
-        #[arg(short, long)]
-        branch: Option<String>,
-
-        /// Shallow clone depth
-        #[arg(short, long)]
-        depth: Option<u32>,
-
-        /// Sparse paths to include
-        #[arg(long)]
-        sparse: Vec<String>,
-    },
-
-    /// Unreal Engine GitDependencies + CIPD Blake3 content-addressed binary artifacts
-    Artifacts {
-        #[command(subcommand)]
-        sub: ArtifactCommands,
-    },
-
-    /// Standard .gitignore and .llmignore templates
-    Ignore {
-        /// Template: rust, bun, chromium, python, llm
-        #[arg(short, long, default_value = "llm")]
-        template: String,
-
-        /// Output path
-        #[arg(short, long, default_value = ".gitignore")]
-        output: PathBuf,
-    },
-
-    /// Display environment, depot_tools status, and feature flags
-    Info,
+    Ingest(IngestArgs),
+    Graph(GraphSubArgs),
+    Worktree(WorktreeSubArgs),
+    Fork(ForkSubArgs),
+    Slim(SlimArgs),
+    Clone(CloneArgs),
+    Artifacts(ArtifactSubArgs),
+    Ignore(IgnoreArgs),
+    Info(InfoArgs),
 }
 
-#[derive(Subcommand)]
-enum GraphCommands {
-    /// Build graph.json, GRAPH_REPORT.md, and ARCHITECTURE.mermaid
-    Build {
-        #[arg(default_value = ".")]
-        path: PathBuf,
+// Ingest
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "ingest")]
+/// Ingest a codebase and output an LLM-ready prompt digest
+pub struct IngestArgs {
+    /// target directory to ingest (defaults to ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
 
-        #[arg(short, long, default_value = "graphify-out")]
-        out_dir: PathBuf,
-    },
-    /// Query a symbol or connection in the graph
-    Query {
-        term: String,
+    /// format: markdown, xml, json (default: markdown)
+    #[argh(option, short = 'f', default = "String::from(\"markdown\")")]
+    pub format: String,
 
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
+    /// max token budget (clamps and prioritizes important files)
+    #[argh(option, short = 'm')]
+    pub max_tokens: Option<usize>,
+
+    /// output file path (defaults to stdout)
+    #[argh(option, short = 'o')]
+    pub output: Option<PathBuf>,
+
+    /// include glob patterns
+    #[argh(option, short = 'i')]
+    pub include: Vec<String>,
+
+    /// exclude glob patterns
+    #[argh(option, short = 'e')]
+    pub exclude: Vec<String>,
 }
 
-#[derive(Subcommand)]
-enum WorktreeCommands {
-    /// List all active worktrees
-    List {
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
-    /// Add a new worktree
-    Add {
-        dest: PathBuf,
-        branch: String,
-        #[arg(short, long)]
-        new: bool,
-        #[arg(default_value = ".")]
-        repo: PathBuf,
-    },
-    /// Remove an existing worktree
-    Remove {
-        dest: PathBuf,
-        #[arg(short, long)]
-        force: bool,
-        #[arg(default_value = ".")]
-        repo: PathBuf,
-    },
-    /// Prune stale worktree links
-    Prune {
-        #[arg(default_value = ".")]
-        repo: PathBuf,
-    },
+// Graph
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "graph")]
+/// AST / dependency graph generator and query tool for LLMs
+pub struct GraphSubArgs {
+    #[argh(subcommand)]
+    pub sub: GraphCommands,
 }
 
-#[derive(Subcommand)]
-enum ForkCommands {
-    /// Inspect fork divergence from upstream
-    Status {
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
-    /// Set upstream repository URL
-    SetUpstream {
-        url: String,
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
-    /// Sync current branch with upstream
-    Sync {
-        #[arg(short, long)]
-        branch: Option<String>,
-        #[arg(short, long, default_value = "ff")]
-        strategy: String,
-        #[arg(default_value = ".")]
-        path: PathBuf,
-    },
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum GraphCommands {
+    Build(GraphBuildArgs),
+    Query(GraphQueryArgs),
 }
 
-#[derive(Subcommand)]
-enum ArtifactCommands {
-    /// Verify all artifacts against Blake3 hashes in manifest
-    Verify {
-        #[arg(default_value = "depot-artifacts.toml")]
-        manifest: PathBuf,
-    },
-    /// Compute Blake3 hash and size for a file
-    Hash {
-        file: PathBuf,
-    },
-    /// Initialize a new depot-artifacts.toml manifest
-    Init {
-        #[arg(default_value = "depot-artifacts.toml")]
-        manifest: PathBuf,
-        #[arg(short, long, default_value = "project")]
-        name: String,
-    },
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "build")]
+/// Build graph.json, GRAPH_REPORT.md, and ARCHITECTURE.mermaid
+pub struct GraphBuildArgs {
+    /// target path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+
+    /// output directory (default: graphify-out)
+    #[argh(option, short = 'o', default = "PathBuf::from(\"graphify-out\")")]
+    pub out_dir: PathBuf,
 }
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "query")]
+/// Query a symbol or connection in the graph
+pub struct GraphQueryArgs {
+    /// symbol term to query
+    #[argh(positional)]
+    pub term: String,
+
+    /// target directory containing graph (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+// Worktree
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "worktree")]
+/// Windows-safe worktree management without duplicating repo storage
+pub struct WorktreeSubArgs {
+    #[argh(subcommand)]
+    pub sub: WorktreeCommands,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum WorktreeCommands {
+    List(WorktreeListArgs),
+    Add(WorktreeAddArgs),
+    Remove(WorktreeRemoveArgs),
+    Prune(WorktreePruneArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "list")]
+/// List all active worktrees
+pub struct WorktreeListArgs {
+    /// repo path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "add")]
+/// Add a new worktree
+pub struct WorktreeAddArgs {
+    /// destination path for the worktree
+    #[argh(positional)]
+    pub dest: PathBuf,
+
+    /// branch name
+    #[argh(positional)]
+    pub branch: String,
+
+    /// create a new branch (-n / --new)
+    #[argh(switch, short = 'n')]
+    pub new: bool,
+
+    /// base repository path (default: ".")
+    #[argh(option, short = 'r', default = "PathBuf::from(\".\")")]
+    pub repo: PathBuf,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "remove")]
+/// Remove an existing worktree
+pub struct WorktreeRemoveArgs {
+    /// worktree path to remove
+    #[argh(positional)]
+    pub dest: PathBuf,
+
+    /// force removal even if untracked changes exist
+    #[argh(switch, short = 'f')]
+    pub force: bool,
+
+    /// base repository path (default: ".")
+    #[argh(option, short = 'r', default = "PathBuf::from(\".\")")]
+    pub repo: PathBuf,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "prune")]
+/// Prune stale worktree links
+pub struct WorktreePruneArgs {
+    /// base repository path (default: ".")
+    #[argh(option, short = 'r', default = "PathBuf::from(\".\")")]
+    pub repo: PathBuf,
+}
+
+// Fork
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "fork")]
+/// Fork and upstream tracking, divergence check, and fast-forward/rebase sync
+pub struct ForkSubArgs {
+    #[argh(subcommand)]
+    pub sub: ForkCommands,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum ForkCommands {
+    Status(ForkStatusArgs),
+    SetUpstream(ForkSetUpstreamArgs),
+    Sync(ForkSyncArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "status")]
+/// Inspect fork divergence from upstream
+pub struct ForkStatusArgs {
+    /// repo path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "set-upstream")]
+/// Set upstream repository URL
+pub struct ForkSetUpstreamArgs {
+    /// upstream Git repository URL
+    #[argh(positional)]
+    pub url: String,
+
+    /// repo path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "sync")]
+/// Sync current branch with upstream
+pub struct ForkSyncArgs {
+    /// specific branch to sync
+    #[argh(option, short = 'b')]
+    pub branch: Option<String>,
+
+    /// strategy: ff, rebase, merge (default: ff)
+    #[argh(option, short = 's', default = "String::from(\"ff\")")]
+    pub strategy: String,
+
+    /// repo path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+// Slim
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "slim")]
+/// Apply Git Scalar, commit-graph, multi-pack-index, and fsmonitor to minimize git weight
+pub struct SlimArgs {
+    /// target repository path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+// Clone
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "clone")]
+/// Minimal blobless clone with automated Git Scalar configuration
+pub struct CloneArgs {
+    /// git repository URL
+    #[argh(positional)]
+    pub url: String,
+
+    /// destination path
+    #[argh(positional)]
+    pub dest: PathBuf,
+
+    /// specific branch
+    #[argh(option, short = 'b')]
+    pub branch: Option<String>,
+
+    /// shallow clone depth
+    #[argh(option, short = 'd')]
+    pub depth: Option<u32>,
+
+    /// sparse paths to include
+    #[argh(option)]
+    pub sparse: Vec<String>,
+}
+
+// Artifacts
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "artifacts")]
+/// Unreal Engine GitDependencies + CIPD Blake3 content-addressed binary artifacts
+pub struct ArtifactSubArgs {
+    #[argh(subcommand)]
+    pub sub: ArtifactCommands,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum ArtifactCommands {
+    Verify(ArtifactVerifyArgs),
+    Hash(ArtifactHashArgs),
+    Init(ArtifactInitArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "verify")]
+/// Verify all artifacts against Blake3 hashes in manifest
+pub struct ArtifactVerifyArgs {
+    /// manifest path (default: depot-artifacts.toml)
+    #[argh(positional)]
+    pub manifest: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "hash")]
+/// Compute Blake3 hash and size for a file
+pub struct ArtifactHashArgs {
+    /// file to hash
+    #[argh(positional)]
+    pub file: PathBuf,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "init")]
+/// Initialize a new depot-artifacts.toml manifest
+pub struct ArtifactInitArgs {
+    /// manifest path (default: depot-artifacts.toml)
+    #[argh(positional)]
+    pub manifest: Option<PathBuf>,
+
+    /// project name (default: project)
+    #[argh(option, short = 'n', default = "String::from(\"project\")")]
+    pub name: String,
+}
+
+// Ignore
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "ignore")]
+/// Standard .gitignore and .llmignore templates
+pub struct IgnoreArgs {
+    /// template: rust, bun, chromium, python, llm (default: llm)
+    #[argh(option, short = 't', default = "String::from(\"llm\")")]
+    pub template: String,
+
+    /// output path (default: .gitignore)
+    #[argh(option, short = 'o', default = "PathBuf::from(\".gitignore\")")]
+    pub output: PathBuf,
+}
+
+// Info
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "info")]
+/// Display environment, native Windows NT kernel32 status, and feature flags
+pub struct InfoArgs {}
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    depot_core::enable_vt_processing();
 
-    // Check if the first argument is a depot_tools tool pass-through
-    if args.len() > 1 {
-        let first = &args[1];
+    let mut raw_args: Vec<String> = std::env::args().collect();
+
+    // Check pass-through for depot_tools
+    if raw_args.len() > 1 {
+        let first = &raw_args[1];
         if matches!(
             first.as_str(),
             "gclient" | "cipd" | "fetch" | "autoninja" | "siso" | "gn" | "ninja"
         ) {
-            let passthrough_args = &args[2..];
+            let passthrough_args = &raw_args[2..];
             match depot_core::DepotTools::run_passthrough(first, passthrough_args) {
                 Ok(code) => std::process::exit(code),
                 Err(err) => {
@@ -229,71 +355,105 @@ fn main() {
         }
     }
 
-    let cli = Cli::parse();
+    if raw_args.len() <= 1 {
+        println!("{}", "depot - Run `depot --help` for available commands.".cyan());
+        println!("\nAvailable commands:");
+        println!("  ingest      Ingest a codebase into LLM-ready prompt digest");
+        println!("  graph       AST / dependency graph generator and query tool");
+        println!("  worktree    Windows-safe git worktree management (alias: wt)");
+        println!("  fork        Fork and upstream tracking & synchronization");
+        println!("  slim        Apply Git Scalar and maintenance optimizations");
+        println!("  clone       Minimal blobless clone with Git Scalar");
+        println!("  artifacts   Blake3 content-addressed binary artifact management");
+        println!("  ignore      Standard .gitignore and .llmignore templates");
+        println!("  info        Display environment, native NT kernel32 telemetry");
+        return;
+    }
+
+    // Support 'wt' alias
+    if raw_args[1] == "wt" {
+        raw_args[1] = "worktree".to_string();
+    }
+
+    let args_strs: Vec<&str> = raw_args.iter().map(|s| s.as_str()).collect();
+    let cli = match Cli::from_args(&[args_strs[0]], &args_strs[1..]) {
+        Ok(c) => c,
+        Err(early_exit) => {
+            println!("{}", early_exit.output);
+            std::process::exit(if early_exit.status.is_ok() { 0 } else { 1 });
+        }
+    };
 
     let result = match cli.command {
-        Some(Commands::Ingest {
-            path,
-            format,
-            max_tokens,
-            output,
-            include,
-            exclude,
-        }) => ingest::run_ingest(path, format, max_tokens, output, include, exclude),
+        Commands::Ingest(args) => ingest::run_ingest(
+            args.path.unwrap_or_else(|| PathBuf::from(".")),
+            args.format,
+            args.max_tokens,
+            args.output,
+            args.include,
+            args.exclude,
+        ),
 
-        Some(Commands::Graph { sub }) => match sub {
-            GraphCommands::Build { path, out_dir } => graph::run_graph_build(path, out_dir),
-            GraphCommands::Query { term, path } => graph::run_graph_query(path, term),
-        },
-
-        Some(Commands::Worktree { sub }) => match sub {
-            WorktreeCommands::List { path } => worktree::run_worktree_list(path),
-            WorktreeCommands::Add {
-                dest,
-                branch,
-                new,
-                repo,
-            } => worktree::run_worktree_add(repo, dest, branch, new),
-            WorktreeCommands::Remove { dest, force, repo } => {
-                worktree::run_worktree_remove(repo, dest, force)
+        Commands::Graph(sub_args) => match sub_args.sub {
+            GraphCommands::Build(b) => {
+                graph::run_graph_build(b.path.unwrap_or_else(|| PathBuf::from(".")), b.out_dir)
             }
-            WorktreeCommands::Prune { repo } => worktree::run_worktree_prune(repo),
+            GraphCommands::Query(q) => {
+                graph::run_graph_query(q.path.unwrap_or_else(|| PathBuf::from(".")), q.term)
+            }
         },
 
-        Some(Commands::Fork { sub }) => match sub {
-            ForkCommands::Status { path } => fork::run_fork_status(path),
-            ForkCommands::SetUpstream { url, path } => fork::run_fork_set_upstream(path, url),
-            ForkCommands::Sync {
-                branch,
-                strategy,
-                path,
-            } => fork::run_fork_sync(path, branch, strategy),
+        Commands::Worktree(sub_args) => match sub_args.sub {
+            WorktreeCommands::List(l) => {
+                worktree::run_worktree_list(l.path.unwrap_or_else(|| PathBuf::from(".")))
+            }
+            WorktreeCommands::Add(a) => {
+                worktree::run_worktree_add(a.repo, a.dest, a.branch, a.new)
+            }
+            WorktreeCommands::Remove(r) => {
+                worktree::run_worktree_remove(r.repo, r.dest, r.force)
+            }
+            WorktreeCommands::Prune(p) => worktree::run_worktree_prune(p.repo),
         },
 
-        Some(Commands::Slim { path }) => slim::run_slim(path),
-
-        Some(Commands::Clone {
-            url,
-            dest,
-            branch,
-            depth,
-            sparse,
-        }) => slim::run_clone(url, dest, branch, depth, sparse),
-
-        Some(Commands::Artifacts { sub }) => match sub {
-            ArtifactCommands::Verify { manifest } => artifacts::run_artifacts_verify(manifest),
-            ArtifactCommands::Hash { file } => artifacts::run_artifacts_hash(file),
-            ArtifactCommands::Init { manifest, name } => artifacts::run_artifacts_init(manifest, name),
+        Commands::Fork(sub_args) => match sub_args.sub {
+            ForkCommands::Status(s) => {
+                fork::run_fork_status(s.path.unwrap_or_else(|| PathBuf::from(".")))
+            }
+            ForkCommands::SetUpstream(u) => {
+                fork::run_fork_set_upstream(u.path.unwrap_or_else(|| PathBuf::from(".")), u.url)
+            }
+            ForkCommands::Sync(s) => fork::run_fork_sync(
+                s.path.unwrap_or_else(|| PathBuf::from(".")),
+                s.branch,
+                s.strategy,
+            ),
         },
 
-        Some(Commands::Ignore { template, output }) => ignore::run_ignore_init(output, template),
-
-        Some(Commands::Info) => info::run_info(),
-
-        None => {
-            println!("{}", "depot - Run `depot --help` for available commands.".cyan());
-            Ok(())
+        Commands::Slim(s) => {
+            slim::run_slim(s.path.unwrap_or_else(|| PathBuf::from(".")))
         }
+
+        Commands::Clone(c) => {
+            slim::run_clone(c.url, c.dest, c.branch, c.depth, c.sparse)
+        }
+
+        Commands::Artifacts(sub_args) => match sub_args.sub {
+            ArtifactCommands::Verify(v) => artifacts::run_artifacts_verify(
+                v.manifest
+                    .unwrap_or_else(|| PathBuf::from("depot-artifacts.toml")),
+            ),
+            ArtifactCommands::Hash(h) => artifacts::run_artifacts_hash(h.file),
+            ArtifactCommands::Init(i) => artifacts::run_artifacts_init(
+                i.manifest
+                    .unwrap_or_else(|| PathBuf::from("depot-artifacts.toml")),
+                i.name,
+            ),
+        },
+
+        Commands::Ignore(i) => ignore::run_ignore_init(i.output, i.template),
+
+        Commands::Info(_) => info::run_info(),
     };
 
     if let Err(err) = result {

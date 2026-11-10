@@ -1,5 +1,4 @@
-use colored::Colorize;
-use depot_core::DepotTools;
+use depot_core::{get_cpu_info, get_memory_status, query_perf_frequency, DepotTools, StyleExt};
 
 pub fn run_info() -> Result<(), String> {
     let info = DepotTools::detect();
@@ -8,7 +7,30 @@ pub fn run_info() -> Result<(), String> {
     println!("{}", "           DEPOT UNIFIED ECOSYSTEM INFO         ".bold().cyan());
     println!("{}", "================================================".cyan());
 
-    println!("Depot Tools Root:    {}", match &info.root_path {
+    // Native Platform & Windows NT kernel32 telemetry via windows-sys
+    let (cpus, arch_id) = get_cpu_info();
+    let arch_name = match arch_id {
+        9 => "x86_64 (AMD64)",
+        12 => "ARM64",
+        0 => "x86 (IA32)",
+        _ => "Unknown",
+    };
+    println!("Platform Hardware:   {} logical cores, {} architecture", cpus.to_string().green().bold(), arch_name.cyan());
+
+    if let Some((total_phys, avail_phys)) = get_memory_status() {
+        let total_disp = format!("{:.2} GB", total_phys as f64 / (1024.0 * 1024.0 * 1024.0));
+        let avail_disp = format!("{:.2} GB", avail_phys as f64 / (1024.0 * 1024.0 * 1024.0));
+        println!(
+            "Memory (RAM):        {} total, {} available",
+            total_disp.green().bold(),
+            avail_disp.cyan()
+        );
+    }
+
+    let perf_freq = query_perf_frequency();
+    println!("Timer Resolution:    {} Hz (QueryPerformanceCounter)", perf_freq.to_string().yellow());
+
+    println!("\nDepot Tools Root:    {}", match &info.root_path {
         Some(p) => p.display().to_string().green(),
         None => "Not detected".red(),
     });
@@ -26,6 +48,9 @@ pub fn run_info() -> Result<(), String> {
     });
 
     println!("\nEngine Features:");
+    println!("  - CLI Engine:      {}", "Google argh (zero-bloat derive)".green());
+    println!("  - Memory/Framing:  {}", "Google zerocopy 0.8 (zero-copy FFI)".green());
+    println!("  - Win32 Platform:  {}", "Microsoft windows-sys (native NT kernel32)".green());
     println!("  - LLM Ingestion:   {}", "Enabled (Rust native rayon + ignore)".green());
     println!("  - AST Graph:       {}", "Enabled (graphify compatible)".green());
     println!("  - Worktree Mgr:    {}", "Enabled (Windows safe)".green());
@@ -37,7 +62,7 @@ pub fn run_info() -> Result<(), String> {
     Ok(())
 }
 
-fn status_flag(b: bool) -> colored::ColoredString {
+fn status_flag(b: bool) -> String {
     if b {
         "Available".green().bold()
     } else {

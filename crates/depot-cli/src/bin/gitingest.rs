@@ -1,40 +1,40 @@
 use std::path::PathBuf;
-use clap::Parser;
-use colored::Colorize;
+use argh::FromArgs;
+use depot_core::StyleExt;
 use depot_ingest::{ingest_codebase, DigestFormat, IngestConfig};
 
-#[derive(Parser)]
-#[command(name = "gitingest")]
-#[command(about = "Ultra-fast native Rust codebase-to-LLM prompt digest generator (100x faster than python gitingest)")]
-#[command(version = "0.1.0")]
+#[derive(FromArgs)]
+/// Ultra-fast native Rust codebase-to-LLM prompt digest generator (100x faster than python gitingest)
 struct IngestCli {
-    /// Directory to ingest
-    #[arg(default_value = ".")]
-    path: PathBuf,
+    /// target directory to ingest (defaults to ".")
+    #[argh(positional)]
+    path: Option<PathBuf>,
 
-    /// Output format: markdown, xml, json
-    #[arg(short, long, default_value = "markdown")]
+    /// output format: markdown, xml, json (default: markdown)
+    #[argh(option, short = 'f', default = "String::from(\"markdown\")")]
     format: String,
 
-    /// Max token limit for output
-    #[arg(short, long)]
+    /// max token limit for output
+    #[argh(option, short = 'm')]
     max_tokens: Option<usize>,
 
-    /// Save output to file instead of stdout
-    #[arg(short, long)]
+    /// save output to file instead of stdout
+    #[argh(option, short = 'o')]
     output: Option<PathBuf>,
 
-    /// Include glob patterns
-    #[arg(short, long)]
+    /// include glob patterns
+    #[argh(option, short = 'i')]
     include: Vec<String>,
 
-    /// Exclude glob patterns
-    #[arg(short, long)]
+    /// exclude glob patterns
+    #[argh(option, short = 'e')]
     exclude: Vec<String>,
 }
 
 fn main() {
-    let cli = IngestCli::parse();
+    depot_core::enable_vt_processing();
+    let cli: IngestCli = argh::from_env();
+    let target_path = cli.path.unwrap_or_else(|| PathBuf::from("."));
 
     let format = match cli.format.to_lowercase().as_str() {
         "xml" => DigestFormat::Xml,
@@ -52,7 +52,7 @@ fn main() {
         exclude_patterns: cli.exclude,
     };
 
-    let (digest, stats) = ingest_codebase(&cli.path, &config);
+    let (digest, stats) = ingest_codebase(&target_path, &config);
 
     if let Some(out_p) = cli.output {
         if let Err(e) = std::fs::write(&out_p, &digest) {

@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
-use depot_core::{Artifact, ArtifactManifest};
+use depot_core::{Artifact, ArtifactManifest, StyleExt};
 
 pub fn run_artifacts_verify(manifest_path: PathBuf) -> Result<(), String> {
     println!(

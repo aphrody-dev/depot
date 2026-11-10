@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
-use depot_core::{CloneOptions, GitSlim, SlimOptions};
+use depot_core::{CloneOptions, GitSlim, SlimOptions, StyleExt};
 
 pub fn run_slim(repo_path: PathBuf) -> Result<(), String> {
     println!(

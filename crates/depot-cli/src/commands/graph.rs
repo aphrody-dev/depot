@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
+use depot_core::StyleExt;
 use depot_graph::{build_graph_for_dir, GraphExporter, GraphQuery};
 
 pub fn run_graph_build(root_dir: PathBuf, out_dir: PathBuf) -> Result<(), String> {

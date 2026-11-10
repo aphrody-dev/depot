@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
-use depot_core::{IgnoreTemplate, SmartFilter};
+use depot_core::{IgnoreTemplate, SmartFilter, StyleExt};
 
 pub fn run_ignore_init(target_file: PathBuf, template_name: String) -> Result<(), String> {
     let t = match template_name.to_lowercase().as_str() {

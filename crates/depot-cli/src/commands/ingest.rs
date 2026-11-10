@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
+use depot_core::StyleExt;
 use depot_ingest::{ingest_codebase, DigestFormat, IngestConfig};
 
 pub fn run_ingest(

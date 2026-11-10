@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use colored::Colorize;
-use depot_core::WorktreeManager;
+use depot_core::{StyleExt, WorktreeManager};
 
 pub fn run_worktree_list(repo_path: PathBuf) -> Result<(), String> {
     let list = WorktreeManager::list(&repo_path)?;

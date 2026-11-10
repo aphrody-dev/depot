@@ -2,6 +2,41 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+/// Binary header framing for Blake3 artifact caches and manifests using Google's zerocopy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
+#[repr(C)]
+pub struct ArtifactBinaryHeader {
+    pub magic: [u8; 8],        // b"DEPOTART"
+    pub version: u32,          // 1
+    pub entry_count: u32,
+    pub blake3_digest: [u8; 32],
+    pub total_bytes: u64,
+}
+
+impl ArtifactBinaryHeader {
+    pub const MAGIC: [u8; 8] = *b"DEPOTART";
+    pub const VERSION: u32 = 1;
+
+    pub fn new(entry_count: u32, blake3_digest: [u8; 32], total_bytes: u64) -> Self {
+        Self {
+            magic: Self::MAGIC,
+            version: Self::VERSION,
+            entry_count,
+            blake3_digest,
+            total_bytes,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        zerocopy::IntoBytes::as_bytes(self)
+    }
+
+    pub fn parse_from_prefix(bytes: &[u8]) -> Option<(Self, &[u8])> {
+        Self::read_from_prefix(bytes).ok()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactEntry {

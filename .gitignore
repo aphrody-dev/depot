@@ -1,0 +1,11 @@
+# Rust .gitignore (Depot Standard)
+/target/
+**/*.rs.bk
+*.pdb
+*.lib
+Cargo.lock
+
+graphify-out/
+*.exe
+upstream/
+

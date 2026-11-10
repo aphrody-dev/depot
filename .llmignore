@@ -1,0 +1,40 @@
+# Universal LLM Ignore (.llmignore - Depot Standard)
+# VCS
+.git/
+.jj/
+
+# Dependencies & Lockfiles
+node_modules/
+target/
+dist/
+build/
+out/
+.next/
+__pycache__/
+*.lock
+*.lockb
+package-lock.json
+
+# Binaries & Media
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.wasm
+*.onnx
+*.safetensors
+*.gguf
+
+# Temp & Artifacts
+graphify-out/
+*.tmp
+*.log

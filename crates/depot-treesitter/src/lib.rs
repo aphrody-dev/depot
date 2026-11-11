@@ -155,9 +155,15 @@ def standalone():
     fn test_lua_ast_extraction() {
         let code = r#"
 local bit32 = require("bit32")
+local _ENV = { bit32 = bit32, table = table }
 
 local function compute_hash(val)
-    return bit32.bxor(val, 0x52)
+    if val == 0 then
+        goto skip_calc
+    end
+    do return bit32.bxor(val, 0x52) end
+    ::skip_calc::
+    return 0
 end
 
 function Player:level_up()
@@ -167,7 +173,9 @@ end
 "#;
         let summary = TreeSitterEngine::parse_str(SupportedLanguage::Lua, "script.lua", code).unwrap();
         assert_eq!(summary.language, "lua");
+        assert!(summary.symbols.iter().any(|s| s.name == "_ENV" && s.kind == SymbolKind::Variable));
         assert!(summary.symbols.iter().any(|s| s.name == "compute_hash" && s.kind == SymbolKind::Function));
+        assert!(summary.symbols.iter().any(|s| s.name == "skip_calc" && s.kind == SymbolKind::Label));
         assert!(summary.symbols.iter().any(|s| s.name == "Player:level_up" && s.kind == SymbolKind::Method));
         assert!(summary.imports.iter().any(|i| i.source_module == "bit32"));
         assert!(summary.calls.iter().any(|c| c.callee == "compute_hash"));

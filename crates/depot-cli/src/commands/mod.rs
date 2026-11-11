@@ -9,6 +9,7 @@ pub mod ignore;
 pub mod info;
 pub mod ingest;
 pub mod just;
+pub mod lua;
 pub mod manifests;
 pub mod migrate;
 pub mod re;

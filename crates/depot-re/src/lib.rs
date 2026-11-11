@@ -14,8 +14,9 @@ pub use abi::{CppAbiClass, classify_symbol_abi};
 pub use binary::{BinaryFormatReport, SectionSummary, inspect_binary_bytes};
 pub use disasm::{DisassembledInstruction, disassemble_x64};
 pub use lua::{
-    Lua52BytecodeAudit, LuaBytecodeHeader, LuaDisassembledInstruction, LuaPrototypeAudit,
-    audit_lua52_bytecode, decode_lua52_instruction, is_lua52_bytecode,
+    Lua52BytecodeAudit, LuaBytecodeHeader, LuaDisassembledInstruction, LuaGlobalAccess,
+    LuaLocalVar, LuaPrototypeAudit, LuaUpvalueDesc, RawConstant, audit_lua52_bytecode,
+    decode_lua52_instruction, is_lua52_bytecode, transcode_lua52_bytecode,
 };
 pub use rea::{MINGW_CRT_NOISE_SYMBOLS, ReaNoiseFilterReport, filter_crt_boilerplate};
 
@@ -94,38 +95,69 @@ mod tests {
 
     #[test]
     fn test_lua52_bytecode_audit() {
-        // Minimal fake Lua 5.2 header
+        // Canonical PUC-Rio Lua 5.2.4 18-byte header (lundump.c)
         let mut chunk = Vec::new();
-        chunk.extend_from_slice(b"\x1bLua\x52\x00"); // Signature + version + format
-        chunk.extend_from_slice(b"\x19\x93\r\n\x1a\n"); // LUAC_DATA
-        chunk.extend_from_slice(&[4, 8, 4, 8, 0]); // sizeof int, size_t, Instruction, lua_Number, integral
+        chunk.extend_from_slice(b"\x1bLua\x52\x00"); // Signature + version (0x52) + official format (0)
+        chunk.extend_from_slice(&[1, 4, 8, 4, 8, 0]); // little-endian, sizeof(int)=4, sizeof(size_t)=8, sizeof(Instruction)=4, sizeof(lua_Number)=8, integral=0
+        chunk.extend_from_slice(b"\x19\x93\r\n\x1a\n"); // LUAC_TAIL (6 bytes)
+
         // Main proto: line_defined=0, last_line=0, num_params=0, is_vararg=1, max_stack=2
-        chunk.extend_from_slice(&[0, 0, 0, 0]); // line_defined
-        chunk.extend_from_slice(&[0, 0, 0, 0]); // last_line
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // line_defined (int = 4 bytes)
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // last_line (int = 4 bytes)
         chunk.push(0); // num_params
         chunk.push(1); // is_vararg
         chunk.push(2); // max_stack
-        // Code: 1 instruction: RETURN R0..R0 (opcode 31 = RETURN, a=0, b=1)
-        // raw = 31 | (0 << 6) | (1 << 23)
-        let raw_instr = 31u32 | (1u32 << 23);
-        chunk.extend_from_slice(&1u64.to_le_bytes()); // code_len = 1
-        chunk.extend_from_slice(&raw_instr.to_le_bytes());
-        // Constants: 0
-        chunk.extend_from_slice(&0u64.to_le_bytes());
+
+        // Code: 2 instructions:
+        // [0] GETTABUP R0, U0, K0 (opcode 6 = GETTABUP, A=0, B=0, C=256 (ISK|0))
+        // [1] RETURN R0..R0 (opcode 31 = RETURN, A=0, B=2)
+        let instr_gettabup = 6u32 | (0u32 << 6) | (256u32 << 14) | (0u32 << 23);
+        let instr_return = 31u32 | (0u32 << 6) | (2u32 << 23);
+        chunk.extend_from_slice(&2u32.to_le_bytes()); // code_len = 2 (int = 4 bytes)
+        chunk.extend_from_slice(&instr_gettabup.to_le_bytes());
+        chunk.extend_from_slice(&instr_return.to_le_bytes());
+
+        // Constants: 1 string constant "print" (tag 4, size_t=8 including NUL)
+        chunk.extend_from_slice(&1u32.to_le_bytes());
+        chunk.push(4); // LUA_TSHRSTR
+        chunk.extend_from_slice(&6u64.to_le_bytes()); // "print\0".len() = 6
+        chunk.extend_from_slice(b"print\0");
+
         // Sub-prototypes: 0
-        chunk.extend_from_slice(&0u64.to_le_bytes());
+        chunk.extend_from_slice(&0u32.to_le_bytes());
+
         // Upvalues: 1 upvalue (_ENV)
-        chunk.extend_from_slice(&1u64.to_le_bytes());
+        chunk.extend_from_slice(&1u32.to_le_bytes());
         chunk.push(1); // in_stack
         chunk.push(0); // idx
-        // Source string: 0
-        chunk.extend_from_slice(&0u64.to_le_bytes());
+
+        // Debug section: source="@main.lua", line_info=0, locals=0, upvalue_names=1 ("_ENV")
+        chunk.extend_from_slice(&10u64.to_le_bytes()); // "@main.lua\0"
+        chunk.extend_from_slice(b"@main.lua\0");
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // line_info count
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // locals count
+        chunk.extend_from_slice(&1u32.to_le_bytes()); // upvalue names count
+        chunk.extend_from_slice(&5u64.to_le_bytes()); // "_ENV\0"
+        chunk.extend_from_slice(b"_ENV\0");
 
         let audit = ReEngine::audit_bytes(&chunk, "test.luac").unwrap();
         assert!(audit.is_lua_bytecode);
         let lua = audit.lua_bytecode.unwrap();
         assert_eq!(lua.header.version, "5.2");
-        assert_eq!(lua.total_instructions, 1);
-        assert_eq!(lua.main_prototype.instructions[0].opcode, "RETURN");
+        assert_eq!(lua.header.size_size_t, 8);
+        assert_eq!(lua.total_instructions, 2);
+        assert_eq!(lua.main_prototype.instructions[0].opcode, "GETTABUP");
+        assert_eq!(lua.main_prototype.instructions[1].opcode, "RETURN");
+        assert_eq!(lua.global_accesses.len(), 1);
+        assert_eq!(lua.global_accesses[0].symbol, "print");
+        assert_eq!(lua.global_accesses[0].kind, "read");
+
+        // Verify x64 (size_t=8) -> wasm32 (size_t=4) bytecode transcoding
+        let wasm_chunk = transcode_lua52_bytecode(&chunk, 4, 4).unwrap();
+        let wasm_audit = ReEngine::audit_bytes(&wasm_chunk, "test_wasm32.luac").unwrap();
+        let wasm_lua = wasm_audit.lua_bytecode.unwrap();
+        assert_eq!(wasm_lua.header.size_size_t, 4);
+        assert_eq!(wasm_lua.global_accesses.len(), 1);
+        assert_eq!(wasm_lua.global_accesses[0].symbol, "print");
     }
 }

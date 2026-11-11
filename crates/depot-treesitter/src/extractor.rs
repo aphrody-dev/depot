@@ -563,20 +563,95 @@ fn walk_node(
                 "function_declaration" | "local_function_declaration" => {
                     if let Some(name_node) = node.child_by_field_name("name") {
                         let name = node_text(&name_node, bytes).to_string();
-                        let kind = if name.contains(':') {
+                        let sym_kind = if name.contains(':') {
                             SymbolKind::Method
                         } else {
                             SymbolKind::Function
                         };
                         symbols.push(AstSymbol {
                             name: name.clone(),
-                            kind,
+                            kind: sym_kind,
                             span: Span::from_node(&node),
                             signature: extract_signature(&node, bytes),
                             doc: None,
                             parent_scope: current_scope.clone(),
                         });
                         pushed_scope = Some(name);
+                    }
+                }
+                "label_statement" => {
+                    let raw = node_text(&node, bytes);
+                    let label_name = raw.trim_matches(':').trim().to_string();
+                    if !label_name.is_empty() {
+                        symbols.push(AstSymbol {
+                            name: label_name,
+                            kind: SymbolKind::Label,
+                            span: Span::from_node(&node),
+                            signature: Some(raw.to_string()),
+                            doc: None,
+                            parent_scope: current_scope.clone(),
+                        });
+                    }
+                }
+                "variable_declaration" => {
+                    // Lua 5.2 local variable declaration (e.g. `local _ENV = sandbox`, `local M = {}`)
+                    let mut c = node.walk();
+                    for ch in node.children(&mut c) {
+                        if ch.kind() == "assignment_statement" {
+                            if let Some(vars) = ch.child(0) {
+                                let var_name = node_text(&vars, bytes).to_string();
+                                if var_name == "_ENV" || var_name.chars().next().is_some_and(|ch| ch.is_ascii_uppercase()) {
+                                    let sym_kind = if var_name == "_ENV" {
+                                        SymbolKind::Variable
+                                    } else {
+                                        SymbolKind::Module
+                                    };
+                                    symbols.push(AstSymbol {
+                                        name: var_name,
+                                        kind: sym_kind,
+                                        span: Span::from_node(&node),
+                                        signature: extract_signature(&node, bytes),
+                                        doc: None,
+                                        parent_scope: current_scope.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+                "assignment_statement" => {
+                    if node.parent().is_none_or(|p| p.kind() != "variable_declaration") {
+                        if let Some(vars) = node.child(0) {
+                            let target = node_text(&vars, bytes).to_string();
+                            let rhs_is_fn = node
+                                .child(2)
+                                .is_some_and(|exprs| node_text(&exprs, bytes).starts_with("function"));
+                            if rhs_is_fn {
+                                let sym_kind = if target.contains(':') {
+                                    SymbolKind::Method
+                                } else {
+                                    SymbolKind::Function
+                                };
+                                symbols.push(AstSymbol {
+                                    name: target.clone(),
+                                    kind: sym_kind,
+                                    span: Span::from_node(&node),
+                                    signature: extract_signature(&node, bytes),
+                                    doc: None,
+                                    parent_scope: current_scope.clone(),
+                                });
+                                pushed_scope = Some(target);
+                            } else if target == "_ENV" {
+                                symbols.push(AstSymbol {
+                                    name: target,
+                                    kind: SymbolKind::Variable,
+                                    span: Span::from_node(&node),
+                                    signature: extract_signature(&node, bytes),
+                                    doc: None,
+                                    parent_scope: current_scope.clone(),
+                                });
+                            }
+                        }
                     }
                 }
                 "function_call" => {
@@ -589,15 +664,18 @@ fn walk_node(
                     };
 
                     if !callee.is_empty() {
-                        if callee == "require" || callee == "include" {
+                        if callee == "require" || callee == "include" || callee == "dofile" {
                             if let Some(args) = node.child_by_field_name("arguments") {
                                 let arg_text = node_text(&args, bytes);
-                                let clean = arg_text.trim_matches(|c| c == '(' || c == ')' || c == '"' || c == '\'');
-                                imports.push(AstImport {
-                                    source_module: clean.to_string(),
-                                    imported_symbols: Vec::new(),
-                                    span: Span::from_node(&node),
-                                });
+                                let clean = arg_text
+                                    .trim_matches(|c| c == '(' || c == ')' || c == '"' || c == '\'' || c == ' ');
+                                if !clean.is_empty() {
+                                    imports.push(AstImport {
+                                        source_module: clean.to_string(),
+                                        imported_symbols: Vec::new(),
+                                        span: Span::from_node(&node),
+                                    });
+                                }
                             }
                         }
 

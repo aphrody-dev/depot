@@ -8,6 +8,7 @@ use depot_forge::GitHubClient;
 use depot_graph::{build_graph_for_dir, GraphQuery, QueryOptions};
 use depot_ingest::{ingest_codebase, DigestFormat, IngestConfig};
 use depot_migrate::MigrateEngine;
+use depot_re::{ReEngine, transcode_lua52_bytecode};
 use depot_treesitter::{TreeSitterEngine, apply_helix_rope_edits};
 
 pub const DEPOT_ABI_VERSION: u32 = 20261111;
@@ -192,6 +193,69 @@ pub extern "C" fn depot_migrate_run_json(root_dir_ptr: *const c_char, dry_run: b
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn depot_re_audit_json(path_ptr: *const c_char) -> *mut c_char {
+    let p_str = c_str_to_str(path_ptr);
+    let path = Path::new(p_str);
+
+    match ReEngine::audit_file(path) {
+        Ok(audit) => to_c_string(serde_json::to_string(&audit).unwrap_or_default()),
+        Err(e) => to_c_string(json!({ "error": e, "path": p_str }).to_string()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn depot_re_audit_bytes_json(
+    label_ptr: *const c_char,
+    bytes_ptr: *const u8,
+    bytes_len: usize,
+) -> *mut c_char {
+    let label = c_str_to_str(label_ptr);
+    if bytes_ptr.is_null() || bytes_len == 0 {
+        return to_c_string(json!({ "error": "empty bytecode buffer", "path": label }).to_string());
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+
+    match ReEngine::audit_bytes(slice, label) {
+        Ok(audit) => to_c_string(serde_json::to_string(&audit).unwrap_or_default()),
+        Err(e) => to_c_string(json!({ "error": e, "path": label }).to_string()),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn depot_lua52_transcode_hex(
+    bytes_ptr: *const u8,
+    bytes_len: usize,
+    target_int: u8,
+    target_sizet: u8,
+) -> *mut c_char {
+    if bytes_ptr.is_null() || bytes_len == 0 {
+        return to_c_string(json!({ "error": "empty Lua 5.2 bytecode buffer" }).to_string());
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
+
+    match transcode_lua52_bytecode(slice, target_int, target_sizet) {
+        Ok(out) => {
+            let mut hex = String::with_capacity(out.len() * 2);
+            for b in &out {
+                use std::fmt::Write;
+                let _ = write!(&mut hex, "{b:02x}");
+            }
+            to_c_string(
+                json!({
+                    "ok": true,
+                    "byte_length": out.len(),
+                    "target_size_int": target_int,
+                    "target_size_size_t": target_sizet,
+                    "hex": hex,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => to_c_string(json!({ "ok": false, "error": e }).to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +300,56 @@ mod tests {
         let res_str = unsafe { CStr::from_ptr(res_ptr).to_str().unwrap() };
         assert!(res_str.contains("typescript"));
         depot_free_string(res_ptr);
+    }
+
+    #[test]
+    fn test_lua52_ffi_pipeline() {
+        // 1. Magika LuaBytecode detection
+        let luac_path = CString::new("quest.lua.bin").unwrap();
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(b"\x1bLua\x52\x00");
+        chunk.extend_from_slice(&[1, 4, 8, 4, 8, 0]);
+        chunk.extend_from_slice(b"\x19\x93\r\n\x1a\n");
+        chunk.extend_from_slice(&0u32.to_le_bytes());
+        chunk.extend_from_slice(&0u32.to_le_bytes());
+        chunk.extend_from_slice(&[0, 1, 2]);
+        let ret_instr = 31u32 | (1u32 << 23);
+        chunk.extend_from_slice(&1u32.to_le_bytes());
+        chunk.extend_from_slice(&ret_instr.to_le_bytes());
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // constants
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // protos
+        chunk.extend_from_slice(&1u32.to_le_bytes()); // upvalues
+        chunk.extend_from_slice(&[1, 0]);
+        chunk.extend_from_slice(&0u64.to_le_bytes()); // source = nil
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // lineinfo
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // locals
+        chunk.extend_from_slice(&0u32.to_le_bytes()); // upval names
+
+        let magika_ptr = depot_magika_detect_json(luac_path.as_ptr(), chunk.as_ptr(), chunk.len());
+        let magika_str = unsafe { CStr::from_ptr(magika_ptr).to_str().unwrap() };
+        assert!(magika_str.contains("LuaBytecode"));
+        depot_free_string(magika_ptr);
+
+        // 2. RE audit bytes FFI
+        let audit_ptr = depot_re_audit_bytes_json(luac_path.as_ptr(), chunk.as_ptr(), chunk.len());
+        let audit_str = unsafe { CStr::from_ptr(audit_ptr).to_str().unwrap() };
+        assert!(audit_str.contains("\"is_lua_bytecode\":true"));
+        assert!(audit_str.contains("RETURN"));
+        depot_free_string(audit_ptr);
+
+        // 3. Lua 5.2 x64 -> wasm32 transcode FFI
+        let trans_ptr = depot_lua52_transcode_hex(chunk.as_ptr(), chunk.len(), 4, 4);
+        let trans_str = unsafe { CStr::from_ptr(trans_ptr).to_str().unwrap() };
+        assert!(trans_str.contains("\"ok\":true"));
+        depot_free_string(trans_ptr);
+
+        // 4. Lua 5.2 Tree-Sitter AST FFI
+        let lua_file = CString::new("script.lua").unwrap();
+        let lua_src = CString::new("local _ENV = _ENV\nlocal function calc() goto done ::done:: return 1 end\n").unwrap();
+        let ts_ptr = depot_treesitter_symbols_json(lua_file.as_ptr(), lua_src.as_ptr());
+        let ts_str = unsafe { CStr::from_ptr(ts_ptr).to_str().unwrap() };
+        assert!(ts_str.contains("calc"));
+        assert!(ts_str.contains("done"));
+        depot_free_string(ts_ptr);
     }
 }

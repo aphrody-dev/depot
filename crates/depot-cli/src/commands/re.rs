@@ -37,6 +37,22 @@ pub fn execute_re(binary_path: &Path, output_json: bool) -> Result<(), String> {
                 }
             }
 
+            if !lua.global_accesses.is_empty() {
+                println!("{}", "--- _ENV Lexical Global Accesses ---".yellow().bold());
+                for g in lua.global_accesses.iter().take(12) {
+                    println!(
+                        "    [{:04}] {:5} {} ({})",
+                        g.pc,
+                        g.kind.green(),
+                        g.symbol.bold(),
+                        g.proto_path
+                    );
+                }
+                if lua.global_accesses.len() > 12 {
+                    println!("    ... and {} more global accesses", lua.global_accesses.len() - 12);
+                }
+            }
+
             println!("{}", "--- Lua 5.2 REA Disassembly ---".magenta().bold());
             for instr in lua.main_prototype.instructions.iter().take(16) {
                 println!("    [{:04}] {:10} {}", instr.pc, instr.opcode.cyan(), instr.formatted);

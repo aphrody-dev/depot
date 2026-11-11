@@ -28,6 +28,7 @@ pub enum ContentCategory {
     Shell,
     LlvmIr,
     WebAssembly,
+    LuaBytecode,
     PeExecutable,
     ElfExecutable,
     MachOExecutable,
@@ -61,6 +62,7 @@ impl ContentCategory {
             Self::Shell => "shell",
             Self::LlvmIr => "llvm-ir",
             Self::WebAssembly => "wasm",
+            Self::LuaBytecode => "luac",
             Self::PeExecutable => "pe",
             Self::ElfExecutable => "elf",
             Self::MachOExecutable => "macho",
@@ -77,6 +79,7 @@ impl ContentCategory {
         matches!(
             self,
             Self::WebAssembly
+                | Self::LuaBytecode
                 | Self::PeExecutable
                 | Self::ElfExecutable
                 | Self::MachOExecutable
@@ -180,6 +183,15 @@ pub fn detect_content(path: &Path, sample: &[u8]) -> ContentSignature {
                     confidence: 0.99,
                 };
             }
+            [0x1B, b'L', b'u', b'a'] => {
+                return ContentSignature {
+                    category: ContentCategory::LuaBytecode,
+                    label: ContentCategory::LuaBytecode.as_label(),
+                    mime_type: "application/x-lua-bytecode",
+                    is_binary: true,
+                    confidence: 0.99,
+                };
+            }
             [0xCA, 0xFE, 0xBA, 0xBE] => {
                 return ContentSignature {
                     category: ContentCategory::JavaClassBytecode,
@@ -259,6 +271,7 @@ pub fn detect_content(path: &Path, sample: &[u8]) -> ContentSignature {
         "uasset" | "umap" => ContentCategory::UnrealAsset,
         "exe" | "dll" | "sys" => ContentCategory::PeExecutable,
         "wasm" => ContentCategory::WebAssembly,
+        "luac" => ContentCategory::LuaBytecode,
         "tar" | "gz" | "bz2" | "xz" | "zst" | "zip" | "7z" => ContentCategory::Archive,
         _ => {
             // Stage 4: Statistical text vs binary fallback
@@ -295,6 +308,7 @@ pub fn detect_content(path: &Path, sample: &[u8]) -> ContentSignature {
         ContentCategory::ElfExecutable => ("application/x-executable", true, 0.95),
         ContentCategory::MachOExecutable => ("application/x-mach-binary", true, 0.95),
         ContentCategory::WebAssembly => ("application/wasm", true, 0.95),
+        ContentCategory::LuaBytecode => ("application/x-lua-bytecode", true, 0.98),
         ContentCategory::JavaClassBytecode => ("application/java-vm", true, 0.95),
         ContentCategory::Archive => ("application/zip", true, 0.90),
         ContentCategory::UnknownBinary => ("application/octet-stream", true, 0.80),

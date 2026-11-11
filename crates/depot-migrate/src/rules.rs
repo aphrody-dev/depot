@@ -42,4 +42,16 @@ pub const MIGRATION_RULES: &[CodemodRule] = &[
         legacy_pattern: "bcrypt.hash(",
         replacement: "Bun.password.hash(",
     },
+    CodemodRule {
+        id: "LUA52-TABLE-UNPACK",
+        description: "Migrate Lua 5.1 global unpack() to Lua 5.2 table.unpack()",
+        legacy_pattern: "unpack(",
+        replacement: "table.unpack(",
+    },
+    CodemodRule {
+        id: "LUA52-BIT32",
+        description: "Migrate LuaJIT/LuaBitOp bit.* calls to PUC-Rio Lua 5.2 bit32.*",
+        legacy_pattern: "bit.band(",
+        replacement: "bit32.band(",
+    },
 ];

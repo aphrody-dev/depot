@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 depot-core.workspace = true
 depot-treesitter.workspace = true
+depot-re.workspace = true
 depot-migrate.workspace = true
 depot-forge.workspace = true
 depot-ingest.workspace = true

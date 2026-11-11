@@ -18,6 +18,7 @@ enum Commands {
     Ingest(IngestArgs),
     Graph(GraphSubArgs),
     Ast(AstArgs),
+    Lua(LuaSubArgs),
     Re(ReArgs),
     Migrate(MigrateArgs),
     Rope(RopeArgs),
@@ -575,6 +576,90 @@ pub struct IgnoreArgs {
 /// Display environment, native Windows NT kernel32 status, and feature flags
 pub struct InfoArgs {}
 
+// Lua 5.2 Sovereign Suite
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "lua")]
+/// Lua 5.2 AST inspector, REA bytecode disassembler, x64<->wasm32 transcoder & project initializer
+pub struct LuaSubArgs {
+    #[argh(subcommand)]
+    pub sub: LuaCommands,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum LuaCommands {
+    Ast(LuaAstArgs),
+    Disasm(LuaDisasmArgs),
+    Transcode(LuaTranscodeArgs),
+    Migrate(LuaMigrateArgs),
+    Init(LuaInitArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "ast")]
+/// Parse Lua 5.2 source AST (functions, methods, ::labels::, _ENV, imports)
+pub struct LuaAstArgs {
+    /// path to .lua source file
+    #[argh(positional)]
+    pub file: PathBuf,
+
+    /// emit structured JSON output
+    #[argh(switch, short = 'j')]
+    pub json: bool,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "disasm")]
+/// Disassemble PUC-Rio Lua 5.2 bytecode (.luac / .lua.bin) and audit _ENV globals
+pub struct LuaDisasmArgs {
+    /// path to compiled .luac or .lua.bin file
+    #[argh(positional)]
+    pub file: PathBuf,
+
+    /// emit structured JSON output
+    #[argh(switch, short = 'j')]
+    pub json: bool,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "transcode")]
+/// Transcode Lua 5.2 bytecode header & size_t strings between x64 (8B) and wasm32 (4B)
+pub struct LuaTranscodeArgs {
+    /// input .luac / .lua.bin path
+    #[argh(positional)]
+    pub input: PathBuf,
+
+    /// output .luac path
+    #[argh(option, short = 'o')]
+    pub output: PathBuf,
+
+    /// target architecture: wasm32 or x64 (default: wasm32)
+    #[argh(option, short = 'a', default = "String::from(\"wasm32\")")]
+    pub arch: String,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "migrate")]
+/// Migrate Lua 5.1 idioms (unpack, bit.*, loadstring) to Lua 5.2 via Helix Rope
+pub struct LuaMigrateArgs {
+    /// path to .lua file
+    #[argh(positional)]
+    pub file: PathBuf,
+
+    /// apply edits in-place
+    #[argh(switch, short = 'w')]
+    pub write: bool,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "init")]
+/// Scaffold a Lua 5.2 project (.luarc.json, stylua.toml, selene.toml, src/main.lua)
+pub struct LuaInitArgs {
+    /// target directory (default: ".")
+    #[argh(positional, default = "PathBuf::from(\".\")")]
+    pub dir: PathBuf,
+}
+
 fn main() {
     depot_core::enable_vt_processing();
 
@@ -603,6 +688,7 @@ fn main() {
         println!("\nAvailable commands:");
         println!("  analyze     End-to-end AST graphify + prompt ingestion in 1 shot");
         println!("  ast         Multi-language Tree-Sitter AST inspection & S-expression queries");
+        println!("  lua         Lua 5.2 AST, REA bytecode disassembler, wasm32 transcoder & init");
         println!("  forge       Typed GitHub & GitLab API client and org repository inspector");
         println!("  gix         Pure-Rust Gitoxide zero-subprocess status and ODB telemetry");
         println!("  graph       AST / dependency graph generator and query tool (Graphify)");
@@ -646,6 +732,14 @@ fn main() {
         }
 
         Commands::Re(r) => re::execute_re(&r.binary, r.json),
+
+        Commands::Lua(l) => match l.sub {
+            LuaCommands::Ast(a) => lua::run_lua_ast(&a.file, a.json),
+            LuaCommands::Disasm(d) => lua::run_lua_disasm(&d.file, d.json),
+            LuaCommands::Transcode(t) => lua::run_lua_transcode(&t.input, &t.output, &t.arch),
+            LuaCommands::Migrate(m) => lua::run_lua_migrate(&m.file, m.write),
+            LuaCommands::Init(i) => lua::run_lua_init(&i.dir),
+        },
 
         Commands::Migrate(m) => migrate::execute_migrate(&m.root, m.dry_run),
 

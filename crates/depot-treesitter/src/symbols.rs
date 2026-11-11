@@ -65,6 +65,7 @@ pub enum SymbolKind {
     Module,
     Constant,
     Variable,
+    Label,
     Recipe,
 }
 
@@ -82,6 +83,7 @@ impl SymbolKind {
             Self::Module => "module",
             Self::Constant => "constant",
             Self::Variable => "variable",
+            Self::Label => "label",
             Self::Recipe => "recipe",
         }
     }

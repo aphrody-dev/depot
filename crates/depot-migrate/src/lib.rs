@@ -71,6 +71,7 @@ impl MigrateEngine {
             let lang = match ext {
                 "ts" | "mts" | "cts" | "tsx" => SupportedLanguage::TypeScript,
                 "js" | "mjs" | "cjs" | "jsx" => SupportedLanguage::JavaScript,
+                "lua" => SupportedLanguage::Lua,
                 _ => continue,
             };
 

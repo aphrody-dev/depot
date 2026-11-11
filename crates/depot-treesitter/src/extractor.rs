@@ -558,6 +558,59 @@ fn walk_node(
                 }
             }
         }
+        SupportedLanguage::Lua => {
+            match kind {
+                "function_declaration" | "local_function_declaration" => {
+                    if let Some(name_node) = node.child_by_field_name("name") {
+                        let name = node_text(&name_node, bytes).to_string();
+                        let kind = if name.contains(':') {
+                            SymbolKind::Method
+                        } else {
+                            SymbolKind::Function
+                        };
+                        symbols.push(AstSymbol {
+                            name: name.clone(),
+                            kind,
+                            span: Span::from_node(&node),
+                            signature: extract_signature(&node, bytes),
+                            doc: None,
+                            parent_scope: current_scope.clone(),
+                        });
+                        pushed_scope = Some(name);
+                    }
+                }
+                "function_call" => {
+                    let callee = if let Some(name_node) = node.child_by_field_name("name") {
+                        node_text(&name_node, bytes).to_string()
+                    } else if let Some(prefix_node) = node.child_by_field_name("prefix") {
+                        node_text(&prefix_node, bytes).to_string()
+                    } else {
+                        String::new()
+                    };
+
+                    if !callee.is_empty() {
+                        if callee == "require" || callee == "include" {
+                            if let Some(args) = node.child_by_field_name("arguments") {
+                                let arg_text = node_text(&args, bytes);
+                                let clean = arg_text.trim_matches(|c| c == '(' || c == ')' || c == '"' || c == '\'');
+                                imports.push(AstImport {
+                                    source_module: clean.to_string(),
+                                    imported_symbols: Vec::new(),
+                                    span: Span::from_node(&node),
+                                });
+                            }
+                        }
+
+                        calls.push(AstCall {
+                            callee,
+                            caller_scope: current_scope.clone(),
+                            span: Span::from_node(&node),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
         _ => {}
     }
 

@@ -150,4 +150,26 @@ def standalone():
         assert_eq!(results[0].capture_name, "fn_name");
         assert_eq!(results[0].text, "compute_sum");
     }
+
+    #[test]
+    fn test_lua_ast_extraction() {
+        let code = r#"
+local bit32 = require("bit32")
+
+local function compute_hash(val)
+    return bit32.bxor(val, 0x52)
+end
+
+function Player:level_up()
+    self.level = self.level + 1
+    compute_hash(self.level)
+end
+"#;
+        let summary = TreeSitterEngine::parse_str(SupportedLanguage::Lua, "script.lua", code).unwrap();
+        assert_eq!(summary.language, "lua");
+        assert!(summary.symbols.iter().any(|s| s.name == "compute_hash" && s.kind == SymbolKind::Function));
+        assert!(summary.symbols.iter().any(|s| s.name == "Player:level_up" && s.kind == SymbolKind::Method));
+        assert!(summary.imports.iter().any(|i| i.source_module == "bit32"));
+        assert!(summary.calls.iter().any(|c| c.callee == "compute_hash"));
+    }
 }

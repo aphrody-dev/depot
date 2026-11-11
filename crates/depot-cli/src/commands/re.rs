@@ -13,24 +13,63 @@ pub fn execute_re(binary_path: &Path, output_json: bool) -> Result<(), String> {
         return Ok(());
     }
 
-    println!("  Format: {} (64-bit: {})", audit.format.format.green().bold(), audit.format.is_64_bit);
-    println!("  Entry point: 0x{:X}", audit.format.entry_point);
-    println!("  Sections: {} found", audit.format.sections.len());
-    for s in audit.format.sections.iter().take(6) {
-        println!("    {:12} addr: 0x{:08X} size: {:>8} bytes", s.name.cyan(), s.virtual_address, s.size);
-    }
-    if audit.format.sections.len() > 6 {
-        println!("    ... and {} more sections", audit.format.sections.len() - 6);
+    if audit.is_lua_bytecode {
+        if let Some(lua) = &audit.lua_bytecode {
+            println!("  Binary Type: {}", "Lua 5.2 Compiled Bytecode".green().bold());
+            println!("  Version: {} (official: {}, endian: {})", lua.header.version, lua.header.is_official_format, if lua.header.is_little_endian { "little" } else { "big" });
+            println!("  Types: sizeof(int)={} sizeof(size_t)={} sizeof(Instruction)={}", lua.header.size_int, lua.header.size_size_t, lua.header.size_instruction);
+            println!("  Prototypes: {} | Total Instructions: {}", lua.total_prototypes, lua.total_instructions);
+            println!("  Main Prototype: lines {}-{} (params: {}, vararg: {}, stack: {})",
+                lua.main_prototype.line_defined,
+                lua.main_prototype.last_line_defined,
+                lua.main_prototype.num_params,
+                lua.main_prototype.is_vararg,
+                lua.main_prototype.max_stack_size
+            );
+
+            if !lua.main_prototype.constants.is_empty() {
+                println!("{}", "--- Constant Pool ---".yellow().bold());
+                for (idx, c) in lua.main_prototype.constants.iter().enumerate().take(8) {
+                    println!("    K[{idx}] = {c}");
+                }
+                if lua.main_prototype.constants.len() > 8 {
+                    println!("    ... and {} more constants", lua.main_prototype.constants.len() - 8);
+                }
+            }
+
+            println!("{}", "--- Lua 5.2 REA Disassembly ---".magenta().bold());
+            for instr in lua.main_prototype.instructions.iter().take(16) {
+                println!("    [{:04}] {:10} {}", instr.pc, instr.opcode.cyan(), instr.formatted);
+            }
+            if lua.main_prototype.instructions.len() > 16 {
+                println!("    ... and {} more instructions", lua.main_prototype.instructions.len() - 16);
+            }
+        }
+        return Ok(());
     }
 
-    println!("  Exports: {} | Imports: {}", audit.format.exports.len(), audit.format.imports.len());
-    println!("  REA Markers: dwarf={} rea_sig={}", audit.format.has_dwarf_debug, audit.format.has_rea_marker);
+    if let Some(format) = &audit.format {
+        println!("  Format: {} (64-bit: {})", format.format.green().bold(), format.is_64_bit);
+        println!("  Entry point: 0x{:X}", format.entry_point);
+        println!("  Sections: {} found", format.sections.len());
+        for s in format.sections.iter().take(6) {
+            println!("    {:12} addr: 0x{:08X} size: {:>8} bytes", s.name.cyan(), s.virtual_address, s.size);
+        }
+        if format.sections.len() > 6 {
+            println!("    ... and {} more sections", format.sections.len() - 6);
+        }
 
-    println!("{}", "--- MinGW CRT Boilerplate Noise Filter ---".yellow().bold());
-    println!("  Total symbols: {}", audit.noise_filter.total_symbols);
-    println!("  Noise filtered: {}", audit.noise_filter.noise_symbols_count.to_string().red());
-    println!("  Payload symbols: {}", audit.noise_filter.payload_symbols_count.to_string().green().bold());
-    println!("  Noise reduction: {:.1}%", audit.noise_filter.noise_reduction_ratio * 100.0);
+        println!("  Exports: {} | Imports: {}", format.exports.len(), format.imports.len());
+        println!("  REA Markers: dwarf={} rea_sig={}", format.has_dwarf_debug, format.has_rea_marker);
+    }
+
+    if let Some(noise) = &audit.noise_filter {
+        println!("{}", "--- MinGW CRT Boilerplate Noise Filter ---".yellow().bold());
+        println!("  Total symbols: {}", noise.total_symbols);
+        println!("  Noise filtered: {}", noise.noise_symbols_count.to_string().red());
+        println!("  Payload symbols: {}", noise.payload_symbols_count.to_string().green().bold());
+        println!("  Noise reduction: {:.1}%", noise.noise_reduction_ratio * 100.0);
+    }
 
     if !audit.entry_disassembly.is_empty() {
         println!("{}", "--- Entry Point Disassembly (iced-x86) ---".magenta().bold());

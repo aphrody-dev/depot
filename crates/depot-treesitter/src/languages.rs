@@ -15,6 +15,7 @@ pub enum SupportedLanguage {
     Bash,
     Html,
     Css,
+    Lua,
 }
 
 impl SupportedLanguage {
@@ -32,6 +33,7 @@ impl SupportedLanguage {
             Self::Bash => "bash",
             Self::Html => "html",
             Self::Css => "css",
+            Self::Lua => "lua",
         }
     }
 
@@ -49,6 +51,7 @@ impl SupportedLanguage {
             Self::Bash => tree_sitter_bash::LANGUAGE.into(),
             Self::Html => tree_sitter_html::LANGUAGE.into(),
             Self::Css => tree_sitter_css::LANGUAGE.into(),
+            Self::Lua => tree_sitter_lua::LANGUAGE.into(),
         }
     }
 
@@ -67,6 +70,7 @@ impl SupportedLanguage {
             "sh" | "bash" | "zsh" => Some(Self::Bash),
             "html" | "htm" => Some(Self::Html),
             "css" | "scss" => Some(Self::Css),
+            "lua" => Some(Self::Lua),
             _ => None,
         }
     }

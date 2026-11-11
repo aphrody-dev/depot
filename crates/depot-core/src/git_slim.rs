@@ -112,7 +112,7 @@ impl GitSlim {
             (options.write_commit_graph, "fetch.writeCommitGraph", "true"),
             (options.write_commit_graph, "gc.writeCommitGraph", "true"),
             (true, "maintenance.auto", "true"),
-            (options.repack_pack_reuse, "pack.allowPackReuse", "multi-pack"),
+            (options.repack_pack_reuse, "pack.allowPackReuse", "multi"),
         ];
 
         for (enabled, key, val) in config_pairs {

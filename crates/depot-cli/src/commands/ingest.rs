@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 use depot_core::StyleExt;
-use depot_ingest::{ingest_codebase, DigestFormat, IngestConfig};
+use depot_ingest::{ingest_codebase, ingest_remote_url, DigestFormat, IngestConfig};
 
 pub fn run_ingest(
-    target_path: PathBuf,
+    target_str: String,
     format_str: String,
     max_tokens: Option<usize>,
     output_file: Option<PathBuf>,
     include: Vec<String>,
     exclude: Vec<String>,
+    outline: bool,
 ) -> Result<(), String> {
     let format = match format_str.to_lowercase().as_str() {
         "xml" => DigestFormat::Xml,
@@ -24,15 +25,24 @@ pub fn run_ingest(
         format,
         include_patterns: include,
         exclude_patterns: exclude,
+        outline_only: outline,
     };
 
+    let is_remote = target_str.starts_with("http://") || target_str.starts_with("https://");
+
     println!(
-        "{} Ingesting codebase at {}...",
+        "{} Ingesting {} at {}...",
         "->".cyan().bold(),
-        target_path.display().to_string().yellow()
+        if is_remote { "remote repo" } else { "codebase" },
+        target_str.yellow()
     );
 
-    let (digest, stats) = ingest_codebase(&target_path, &config);
+    let (digest, stats) = if is_remote {
+        ingest_remote_url(&target_str, &config)?
+    } else {
+        let path = PathBuf::from(&target_str);
+        ingest_codebase(&path, &config)
+    };
 
     if let Some(out_p) = output_file {
         std::fs::write(&out_p, &digest).map_err(|e| format!("Failed to write {}: {}", out_p.display(), e))?;

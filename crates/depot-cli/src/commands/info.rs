@@ -1,7 +1,11 @@
-use depot_core::{get_cpu_info, get_memory_status, query_perf_frequency, DepotTools, StyleExt};
+use std::path::Path;
+use depot_core::{
+    get_cpu_info, get_memory_status, query_perf_frequency, DepotTools, EcosystemManifests, StyleExt,
+};
 
 pub fn run_info() -> Result<(), String> {
     let info = DepotTools::detect();
+    let gov = EcosystemManifests::inspect_root(Path::new(r"C:\src"));
 
     println!("{}", "================================================".cyan());
     println!("{}", "           DEPOT UNIFIED ECOSYSTEM INFO         ".bold().cyan());
@@ -37,10 +41,17 @@ pub fn run_info() -> Result<(), String> {
 
     println!("Components:");
     println!("  - gclient:         {}", status_flag(info.gclient_found));
+    println!("  - repo (AOSP):     {}", status_flag(info.repo_found));
     println!("  - cipd:            {}", status_flag(info.cipd_found));
     println!("  - fetch:           {}", status_flag(info.fetch_found));
     println!("  - autoninja:       {}", status_flag(info.autoninja_found));
     println!("  - siso:            {}", status_flag(info.siso_found));
+
+    println!("\n4-Pillar Manifests (C:\\src):");
+    println!("  - Chromium DEPS:   {} pinned entries", gov.deps_pin_count.to_string().green());
+    println!("  - AOSP repo XML:   {} projects", gov.aosp_project_count.to_string().green());
+    println!("  - Kernel OWNERS:   {} subsystems", gov.kernel_subsystem_count.to_string().green());
+    println!("  - Quilt Series:    {} patches", gov.patch_series_count.to_string().green());
 
     println!("Git Cache Directory: {}", match &info.git_cache_dir {
         Some(p) => p.display().to_string().green(),

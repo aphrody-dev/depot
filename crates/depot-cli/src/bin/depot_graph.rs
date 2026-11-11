@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use argh::FromArgs;
 use depot_core::StyleExt;
-use depot_graph::{build_graph_for_dir, GraphExporter, GraphQuery};
+use depot_graph::{build_graph_for_dir, GraphExporter, GraphQuery, QueryOptions};
 
 #[derive(FromArgs)]
 /// Ultra-fast native Rust AST / dependency knowledge graph generator for LLMs (graphify compatible)
@@ -33,15 +33,8 @@ fn main() {
             build_graph_for_dir(&target_path, &[])
         };
 
-        let results = GraphQuery::query_symbol(&graph, &term);
-        if results.is_empty() {
-            println!("{} No symbols matching '{}' found.", "[INFO]".yellow(), term);
-        } else {
-            println!("{} Found {} matches for '{}':\n", "[MATCHES]".green().bold(), results.len(), term.cyan().bold());
-            for r in results {
-                println!("{}\n", r);
-            }
-        }
+        let result = GraphQuery::query(&graph, &term, &QueryOptions::default());
+        println!("{}", result);
         return;
     }
 
@@ -64,4 +57,8 @@ fn main() {
     println!("  - {}", cli.out_dir.join("graph.json").display());
     println!("  - {}", cli.out_dir.join("GRAPH_REPORT.md").display());
     println!("  - {}", cli.out_dir.join("ARCHITECTURE.mermaid").display());
+    println!("  - {}", cli.out_dir.join("graph.html").display());
+    println!("  - {}", cli.out_dir.join("graph.svg").display());
+    println!("  - {}", cli.out_dir.join("graph.graphml").display());
+    println!("  - {}", cli.out_dir.join("cypher.txt").display());
 }

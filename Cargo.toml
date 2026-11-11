@@ -2,31 +2,59 @@
 resolver = "2"
 members = [
     "crates/depot-core",
+    "crates/depot-treesitter",
+    "crates/depot-re",
+    "crates/depot-migrate",
+    "crates/depot-forge",
     "crates/depot-ingest",
     "crates/depot-graph",
+    "crates/depot-ffi",
     "crates/depot-cli",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/aphrody/depot"
+repository = "https://github.com/aphrody-dev/depot"
 
 [workspace.dependencies]
 depot-core = { path = "crates/depot-core" }
+depot-treesitter = { path = "crates/depot-treesitter" }
+depot-re = { path = "crates/depot-re" }
+depot-migrate = { path = "crates/depot-migrate" }
+depot-forge = { path = "crates/depot-forge" }
 depot-ingest = { path = "crates/depot-ingest" }
 depot-graph = { path = "crates/depot-graph" }
 
 argh = "0.1.13"
 blake3 = { version = "1.6.1", features = ["mmap", "rayon"] }
+gix = { version = "0.61.0", default-features = false, features = ["default"] }
 globset = "0.4.15"
+goblin = "0.10.7"
+iced-x86 = { version = "1.21.0", features = ["std", "decoder", "intel", "fast_fmt", "instr_info"] }
 ignore = "0.4.23"
 rayon = "1.10.0"
 regex = "1.11.1"
+ropey = "1.6.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+streaming-iterator = "0.1.9"
 toml = "0.8.20"
+tree-sitter = "0.24.7"
+tree-sitter-language = "0.1.9"
+tree-sitter-rust = "0.23.3"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-javascript = "0.23.1"
+tree-sitter-python = "0.23.6"
+tree-sitter-go = "0.23.4"
+tree-sitter-c = "0.23.4"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-json = "0.24.8"
+tree-sitter-bash = "0.23.3"
+tree-sitter-html = "0.23.2"
+tree-sitter-css = "0.23.2"
+ureq = { version = "2.12.1", default-features = false, features = ["tls", "json"] }
 walkdir = "2.5.0"
 zerocopy = { version = "0.8.20", features = ["derive"] }
 windows-sys = { version = "0.59.0", features = [
@@ -37,6 +65,12 @@ windows-sys = { version = "0.59.0", features = [
     "Win32_System_Performance",
     "Win32_Security",
 ] }
+
+[profile.dev]
+opt-level = 0
+debug = 1
+split-debuginfo = "unpacked"
+incremental = true
 
 [profile.release]
 opt-level = 3

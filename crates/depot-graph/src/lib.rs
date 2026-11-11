@@ -1,12 +1,14 @@
 pub mod export;
 pub mod graph;
+pub mod mcp;
 pub mod parser;
 pub mod query;
 
 pub use export::GraphExporter;
-pub use graph::{CodeGraph, GraphEdge, GraphNode};
+pub use graph::{CodeGraph, EdgeProvenance, GraphEdge, GraphNode};
+pub use mcp::McpServer;
 pub use parser::CodeParser;
-pub use query::GraphQuery;
+pub use query::{GraphQuery, QueryOptions};
 
 use std::path::Path;
 use depot_core::SmartFilter;
@@ -43,54 +45,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rust_parser_and_god_nodes() {
-        let code = r#"
+    fn test_treesitter_and_justfile_graph() {
+        let rs_code = r#"
 pub struct EngineCore;
 pub struct RenderPipeline;
 
 impl EngineCore {
-    pub fn init() {}
+    pub fn init() {
+        start_worker();
+    }
 }
+
+fn start_worker() {}
 "#;
         let mut graph = CodeGraph::new();
-        CodeParser::parse_file(Path::new("src/engine.rs"), code, &mut graph);
+        CodeParser::parse_file(Path::new("src/engine.rs"), rs_code, &mut graph);
+
+        let just_code = r#"
+build:
+    cargo build
+
+test: build
+    cargo test
+"#;
+        CodeParser::parse_file(Path::new("justfile"), just_code, &mut graph);
 
         assert!(graph.nodes.iter().any(|n| n.label == "EngineCore"));
         assert!(graph.nodes.iter().any(|n| n.label == "RenderPipeline"));
-        assert!(graph.nodes.iter().any(|n| n.label == "init()"));
+        assert!(graph.nodes.iter().any(|n| n.label == "init"));
+        assert!(graph.nodes.iter().any(|n| n.label == "build"));
+        assert!(graph.nodes.iter().any(|n| n.label == "test"));
 
         let god_nodes = graph.compute_degrees_and_god_nodes(5);
         assert!(!god_nodes.is_empty());
-    }
-
-    #[test]
-    fn test_community_detection() {
-        let mut graph = CodeGraph::new();
-        graph.add_node(GraphNode {
-            id: "a".to_string(),
-            label: "A".to_string(),
-            file_type: "struct".to_string(),
-            source_file: "a.rs".to_string(),
-            source_location: "L1".to_string(),
-            community: 0,
-            degree: None,
-        });
-        graph.add_node(GraphNode {
-            id: "b".to_string(),
-            label: "B".to_string(),
-            file_type: "struct".to_string(),
-            source_file: "b.rs".to_string(),
-            source_location: "L1".to_string(),
-            community: 0,
-            degree: None,
-        });
-        graph.add_edge(GraphEdge {
-            source: "a".to_string(),
-            target: "b".to_string(),
-            relation: "calls".to_string(),
-        });
 
         let comms = graph.detect_communities();
         assert!(comms >= 1);
+
+        // Test path
+        let path_res = graph.shortest_path("EngineCore", "init");
+        assert!(path_res.is_some());
+
+        // Test explain
+        let dossier = GraphQuery::explain(&graph, "EngineCore").unwrap();
+        assert!(dossier.contains("Symbol Dossier: EngineCore"));
+
+        // Test query
+        let opts = QueryOptions::default();
+        let query_res = GraphQuery::query(&graph, "Engine", &opts);
+        assert!(query_res.contains("EngineCore"));
     }
 }

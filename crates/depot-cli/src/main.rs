@@ -6,7 +6,7 @@ mod commands;
 use commands::*;
 
 #[derive(FromArgs, PartialEq, Debug)]
-/// Unified LLM-optimized monorepo manager fusing Google depot_tools, gitingest, graphify, and Git Scalar
+/// Unified LLM-optimized monorepo manager fusing Google depot_tools, gitingest, graphify, Git Scalar, Tree-Sitter, Just, Gitoxide & Tri-Forge
 struct Cli {
     #[argh(subcommand)]
     command: Commands,
@@ -17,11 +17,21 @@ struct Cli {
 enum Commands {
     Ingest(IngestArgs),
     Graph(GraphSubArgs),
+    Ast(AstArgs),
+    Re(ReArgs),
+    Migrate(MigrateArgs),
+    Rope(RopeArgs),
+    Just(JustArgs),
+    Gix(GixArgs),
+    Forge(ForgeSubArgs),
+    Analyze(AnalyzeArgs),
     Worktree(WorktreeSubArgs),
     Fork(ForkSubArgs),
     Slim(SlimArgs),
     Clone(CloneArgs),
     Artifacts(ArtifactSubArgs),
+    Manifests(ManifestsArgs),
+    Maintainer(MaintainerArgs),
     Ignore(IgnoreArgs),
     Info(InfoArgs),
 }
@@ -29,11 +39,11 @@ enum Commands {
 // Ingest
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "ingest")]
-/// Ingest a codebase and output an LLM-ready prompt digest
+/// Ingest a codebase or remote repo into an LLM-ready prompt digest
 pub struct IngestArgs {
-    /// target directory to ingest (defaults to ".")
-    #[argh(positional)]
-    pub path: Option<PathBuf>,
+    /// target directory or remote URL to ingest (defaults to ".")
+    #[argh(positional, default = "String::from(\".\")")]
+    pub target: String,
 
     /// format: markdown, xml, json (default: markdown)
     #[argh(option, short = 'f', default = "String::from(\"markdown\")")]
@@ -54,12 +64,16 @@ pub struct IngestArgs {
     /// exclude glob patterns
     #[argh(option, short = 'e')]
     pub exclude: Vec<String>,
+
+    /// produce high-density symbol outline only
+    #[argh(switch)]
+    pub outline: bool,
 }
 
 // Graph
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "graph")]
-/// AST / dependency graph generator and query tool for LLMs
+/// AST / dependency graph generator and query tool for LLMs (Graphify)
 pub struct GraphSubArgs {
     #[argh(subcommand)]
     pub sub: GraphCommands,
@@ -70,11 +84,14 @@ pub struct GraphSubArgs {
 pub enum GraphCommands {
     Build(GraphBuildArgs),
     Query(GraphQueryArgs),
+    Path(GraphPathArgs),
+    Explain(GraphExplainArgs),
+    Mcp(GraphMcpArgs),
 }
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "build")]
-/// Build graph.json, GRAPH_REPORT.md, and ARCHITECTURE.mermaid
+/// Build graph.json, graph.html, GRAPH_REPORT.md, and ARCHITECTURE.mermaid
 pub struct GraphBuildArgs {
     /// target path (default: ".")
     #[argh(positional)]
@@ -87,13 +104,216 @@ pub struct GraphBuildArgs {
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "query")]
-/// Query a symbol or connection in the graph
+/// Query a symbol or connection in the graph with LLM token budget
 pub struct GraphQueryArgs {
     /// symbol term to query
     #[argh(positional)]
     pub term: String,
 
     /// target directory containing graph (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+
+    /// use DFS traversal instead of default BFS
+    #[argh(switch)]
+    pub dfs: bool,
+
+    /// max token budget for LLM context output (default: 2000)
+    #[argh(option, short = 'b', default = "2000")]
+    pub budget: usize,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "path")]
+/// Find shortest Dijkstra/BFS connection path between two symbols
+pub struct GraphPathArgs {
+    /// source symbol name
+    #[argh(positional)]
+    pub start: String,
+
+    /// destination symbol name
+    #[argh(positional)]
+    pub end: String,
+
+    /// target directory containing graph (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "explain")]
+/// Explain a symbol in rich dossier format (degree, community, callers, callees)
+pub struct GraphExplainArgs {
+    /// symbol name to explain
+    #[argh(positional)]
+    pub term: String,
+
+    /// target directory containing graph (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "mcp")]
+/// Run Graphify Model Context Protocol (MCP) JSON-RPC 2.0 stdio server
+pub struct GraphMcpArgs {
+    /// target directory containing graph (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+}
+
+// AST
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "ast")]
+/// Inspect multi-language Tree-Sitter AST symbols or run S-expression queries
+pub struct AstArgs {
+    /// file path to parse
+    #[argh(positional)]
+    pub file: PathBuf,
+
+    /// tree-sitter S-expression query (e.g. "(function_item) @fn")
+    #[argh(option, short = 'q')]
+    pub query: Option<String>,
+
+    /// output as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+// RE (Reverse Engineering & Binary Analysis)
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "re")]
+/// Reverse-engineering & runtime execution analysis (PE/ELF/Mach-O triage, MinGW CRT filter, x86-64 disasm, ABI classification)
+pub struct ReArgs {
+    /// target binary to inspect (e.g. .exe, .dll, .so)
+    #[argh(positional)]
+    pub binary: PathBuf,
+
+    /// output as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+// Migrate (AST Codemods targeting Bun v1.4.4 & Rust LTO)
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "migrate")]
+/// Universal AST codemods & migrations targeting Bun v1.4.4 and Rust LTO
+pub struct MigrateArgs {
+    /// root directory to migrate (default: ".")
+    #[argh(positional, default = "PathBuf::from(\".\")")]
+    pub root: PathBuf,
+
+    /// dry run without modifying files on disk
+    #[argh(switch)]
+    pub dry_run: bool,
+}
+
+// Rope (Helix Transactional Span Editor)
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "rope")]
+/// Helix-style transactional Rope text replacement
+pub struct RopeArgs {
+    /// target file to edit
+    #[argh(positional)]
+    pub file: PathBuf,
+
+    /// replacement specification: START_BYTE:END_BYTE:REPLACEMENT
+    #[argh(option, short = 'r')]
+    pub replace: Vec<String>,
+}
+
+// Just
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "just")]
+/// Inspect or run recipes from justfile
+pub struct JustArgs {
+    /// working directory or justfile path (default: ".")
+    #[argh(option, short = 'd', default = "PathBuf::from(\".\")")]
+    pub dir: PathBuf,
+
+    /// output recipes as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+// Gix
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "gix")]
+/// Pure-Rust Gitoxide zero-subprocess repository status & telemetry
+pub struct GixArgs {
+    /// target repository path (default: ".")
+    #[argh(positional)]
+    pub path: Option<PathBuf>,
+
+    /// commit history limit (default: 5)
+    #[argh(option, short = 'c', default = "5")]
+    pub commits: usize,
+
+    /// output as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+// Forge
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "forge")]
+/// Strongly typed GitHub & GitLab API client and org inspector
+pub struct ForgeSubArgs {
+    #[argh(subcommand)]
+    pub sub: ForgeCommands,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand)]
+pub enum ForgeCommands {
+    Repo(ForgeRepoArgs),
+    Org(ForgeOrgArgs),
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "repo")]
+/// Inspect a repository on GitHub or GitLab
+pub struct ForgeRepoArgs {
+    /// forge: github or gitlab
+    #[argh(positional)]
+    pub forge: String,
+
+    /// target repository in 'owner/repo' format
+    #[argh(positional)]
+    pub target: String,
+
+    /// output as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "org")]
+/// List repositories for a GitHub org or GitLab group
+pub struct ForgeOrgArgs {
+    /// forge: github or gitlab
+    #[argh(positional)]
+    pub forge: String,
+
+    /// organization or group name (e.g. tree-sitter)
+    #[argh(positional)]
+    pub org: String,
+
+    /// limit results (default: 30)
+    #[argh(option, short = 'l', default = "30")]
+    pub limit: usize,
+
+    /// output as JSON
+    #[argh(switch)]
+    pub json: bool,
+}
+
+// Analyze
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "analyze")]
+/// Comprehensive end-to-end analysis: Tree-Sitter AST + Graphify + Gitingest in 1 command
+pub struct AnalyzeArgs {
+    /// target path or repository (default: ".")
     #[argh(positional)]
     pub path: Option<PathBuf>,
 }
@@ -312,6 +532,29 @@ pub struct ArtifactInitArgs {
     pub name: String,
 }
 
+// Manifests & Maintainer
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "manifests")]
+/// Verify Chromium DEPS, AOSP .repo/manifests/default.xml, Kernel MAINTAINERS, and Quilt patch series
+pub struct ManifestsArgs {
+    /// monorepo root path (default: C:\src)
+    #[argh(positional)]
+    pub root: Option<PathBuf>,
+}
+
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "maintainer")]
+/// Lookup Linux Kernel style MAINTAINERS ownership for any monorepo path
+pub struct MaintainerArgs {
+    /// relative path inside monorepo (e.g. third_party/linux/Makefile)
+    #[argh(positional)]
+    pub target: String,
+
+    /// monorepo root path (default: C:\src)
+    #[argh(option, short = 'r', default = "PathBuf::from(\"C:\\\\src\")")]
+    pub root: PathBuf,
+}
+
 // Ignore
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "ignore")]
@@ -342,7 +585,7 @@ fn main() {
         let first = &raw_args[1];
         if matches!(
             first.as_str(),
-            "gclient" | "cipd" | "fetch" | "autoninja" | "siso" | "gn" | "ninja"
+            "gclient" | "repo" | "cipd" | "fetch" | "autoninja" | "siso" | "gn" | "ninja"
         ) {
             let passthrough_args = &raw_args[2..];
             match depot_core::DepotTools::run_passthrough(first, passthrough_args) {
@@ -358,13 +601,20 @@ fn main() {
     if raw_args.len() <= 1 {
         println!("{}", "depot - Run `depot --help` for available commands.".cyan());
         println!("\nAvailable commands:");
-        println!("  ingest      Ingest a codebase into LLM-ready prompt digest");
-        println!("  graph       AST / dependency graph generator and query tool");
+        println!("  analyze     End-to-end AST graphify + prompt ingestion in 1 shot");
+        println!("  ast         Multi-language Tree-Sitter AST inspection & S-expression queries");
+        println!("  forge       Typed GitHub & GitLab API client and org repository inspector");
+        println!("  gix         Pure-Rust Gitoxide zero-subprocess status and ODB telemetry");
+        println!("  graph       AST / dependency graph generator and query tool (Graphify)");
+        println!("  ingest      Ingest a codebase into LLM-ready prompt digest (Gitingest)");
+        println!("  just        Justfile recipe runner, DAG parser, and structured inspector");
         println!("  worktree    Windows-safe git worktree management (alias: wt)");
         println!("  fork        Fork and upstream tracking & synchronization");
         println!("  slim        Apply Git Scalar and maintenance optimizations");
         println!("  clone       Minimal blobless clone with Git Scalar");
         println!("  artifacts   Blake3 content-addressed binary artifact management");
+        println!("  manifests   Verify Chromium DEPS, AOSP repo XML & Kernel MAINTAINERS");
+        println!("  maintainer  Query subsystem ownership via root MAINTAINERS");
         println!("  ignore      Standard .gitignore and .llmignore templates");
         println!("  info        Display environment, native NT kernel32 telemetry");
         return;
@@ -385,13 +635,39 @@ fn main() {
     };
 
     let result = match cli.command {
+        Commands::Analyze(a) => analyze::run_analyze(a.path),
+
+        Commands::Ast(a) => {
+            if let Some(q) = a.query {
+                ast::run_ast_query(a.file, q)
+            } else {
+                ast::run_ast_parse(a.file, a.json)
+            }
+        }
+
+        Commands::Re(r) => re::execute_re(&r.binary, r.json),
+
+        Commands::Migrate(m) => migrate::execute_migrate(&m.root, m.dry_run),
+
+        Commands::Rope(rp) => rope::execute_rope(&rp.file, &rp.replace),
+
+        Commands::Just(j) => just::run_just_list(j.dir, j.json),
+
+        Commands::Gix(g) => gix::run_gix_status(g.path, g.commits, g.json),
+
+        Commands::Forge(f) => match f.sub {
+            ForgeCommands::Repo(r) => forge::run_forge_repo(r.forge, r.target, r.json),
+            ForgeCommands::Org(o) => forge::run_forge_org_repos(o.forge, o.org, o.limit, o.json),
+        },
+
         Commands::Ingest(args) => ingest::run_ingest(
-            args.path.unwrap_or_else(|| PathBuf::from(".")),
+            args.target,
             args.format,
             args.max_tokens,
             args.output,
             args.include,
             args.exclude,
+            args.outline,
         ),
 
         Commands::Graph(sub_args) => match sub_args.sub {
@@ -399,8 +675,29 @@ fn main() {
                 graph::run_graph_build(b.path.unwrap_or_else(|| PathBuf::from(".")), b.out_dir)
             }
             GraphCommands::Query(q) => {
-                graph::run_graph_query(q.path.unwrap_or_else(|| PathBuf::from(".")), q.term)
+                let opts = depot_graph::query::QueryOptions {
+                    dfs: q.dfs,
+                    max_tokens: q.budget,
+                    max_depth: 4,
+                };
+                graph::run_graph_query_advanced(
+                    q.path.unwrap_or_else(|| PathBuf::from(".")),
+                    q.term,
+                    opts,
+                )
             }
+            GraphCommands::Path(p) => graph::run_graph_path(
+                p.path.unwrap_or_else(|| PathBuf::from(".")),
+                p.start,
+                p.end,
+            ),
+            GraphCommands::Explain(e) => graph::run_graph_explain(
+                e.path.unwrap_or_else(|| PathBuf::from(".")),
+                e.term,
+            ),
+            GraphCommands::Mcp(m) => graph::run_graph_mcp(
+                m.path.unwrap_or_else(|| PathBuf::from(".")),
+            ),
         },
 
         Commands::Worktree(sub_args) => match sub_args.sub {
@@ -430,13 +727,9 @@ fn main() {
             ),
         },
 
-        Commands::Slim(s) => {
-            slim::run_slim(s.path.unwrap_or_else(|| PathBuf::from(".")))
-        }
+        Commands::Slim(s) => slim::run_slim(s.path.unwrap_or_else(|| PathBuf::from("."))),
 
-        Commands::Clone(c) => {
-            slim::run_clone(c.url, c.dest, c.branch, c.depth, c.sparse)
-        }
+        Commands::Clone(c) => slim::run_clone(c.url, c.dest, c.branch, c.depth, c.sparse),
 
         Commands::Artifacts(sub_args) => match sub_args.sub {
             ArtifactCommands::Verify(v) => artifacts::run_artifacts_verify(
@@ -450,6 +743,12 @@ fn main() {
                 i.name,
             ),
         },
+
+        Commands::Manifests(m) => manifests::run_manifests_verify(
+            &m.root.unwrap_or_else(|| PathBuf::from(r"C:\src")),
+        ),
+
+        Commands::Maintainer(m) => manifests::run_maintainer_lookup(&m.root, &m.target),
 
         Commands::Ignore(i) => ignore::run_ignore_init(i.output, i.template),
 

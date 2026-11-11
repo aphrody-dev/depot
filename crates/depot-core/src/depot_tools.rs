@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct DepotToolsInfo {
     pub root_path: Option<PathBuf>,
     pub gclient_found: bool,
+    pub repo_found: bool,
     pub cipd_found: bool,
     pub autoninja_found: bool,
     pub siso_found: bool,
@@ -37,6 +38,11 @@ impl DepotTools {
             .map(|r| r.join("gclient.bat").exists() || r.join("gclient").exists())
             .unwrap_or(false);
 
+        let repo_found = root_path
+            .as_ref()
+            .map(|r| r.join("repo").exists() || r.join("repo_launcher").exists())
+            .unwrap_or(false);
+
         let cipd_found = root_path
             .as_ref()
             .map(|r| r.join("cipd.bat").exists() || r.join("cipd").exists())
@@ -64,6 +70,7 @@ impl DepotTools {
         DepotToolsInfo {
             root_path,
             gclient_found,
+            repo_found,
             cipd_found,
             autoninja_found,
             siso_found,

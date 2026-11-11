@@ -1,6 +1,8 @@
 use std::path::Path;
-use regex::Regex;
-use crate::graph::{CodeGraph, GraphEdge, GraphNode};
+use depot_core::JustEngine;
+use depot_treesitter::{SupportedLanguage, TreeSitterEngine};
+
+use crate::graph::{CodeGraph, EdgeProvenance, GraphEdge, GraphNode};
 
 pub struct CodeParser;
 
@@ -9,399 +11,188 @@ impl CodeParser {
         let rel_path_str = path.to_string_lossy().replace('\\', "/");
         let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
         let file_node_id = format!("file_{}", sanitize_id(&rel_path_str));
 
+        let display_label = if ext.is_empty() {
+            file_name.to_string()
+        } else {
+            format!("{}.{}", file_stem, ext)
+        };
+
         graph.add_node(GraphNode {
             id: file_node_id.clone(),
-            label: format!("{}.{}", file_stem, ext),
+            label: display_label,
             file_type: "file".to_string(),
             source_file: rel_path_str.clone(),
             source_location: "L1".to_string(),
             community: 0,
             degree: None,
+            signature: None,
+            provenance: "EXTRACTED".to_string(),
         });
 
-        match ext {
-            "rs" => Self::parse_rust(path, &rel_path_str, &file_node_id, content, graph),
-            "ts" | "tsx" | "js" | "jsx" => {
-                Self::parse_typescript(path, &rel_path_str, &file_node_id, content, graph)
-            }
-            "py" => Self::parse_python(path, &rel_path_str, &file_node_id, content, graph),
-            "cpp" | "cc" | "cxx" | "h" | "hpp" | "cu" => {
-                Self::parse_cpp(path, &rel_path_str, &file_node_id, content, graph)
-            }
-            "go" => Self::parse_go(path, &rel_path_str, &file_node_id, content, graph),
-            _ => {}
+        // 1. Justfile support
+        if file_name.eq_ignore_ascii_case("justfile") {
+            Self::parse_justfile(&rel_path_str, &file_node_id, content, graph);
+            return;
+        }
+
+        // 2. Tree-sitter multi-language AST extraction
+        if let Some(lang) = TreeSitterEngine::detect_language(path) {
+            Self::parse_treesitter(lang, &rel_path_str, &file_node_id, content, graph);
         }
     }
 
-    fn parse_rust(
-        _path: &Path,
+    fn parse_justfile(
         rel_str: &str,
         file_node_id: &str,
         content: &str,
         graph: &mut CodeGraph,
     ) {
-        let struct_re = Regex::new(r"(?m)^\s*(?:pub(?:\([^)]+\))?\s+)?struct\s+([A-Za-z0-9_]+)").unwrap();
-        let enum_re = Regex::new(r"(?m)^\s*(?:pub(?:\([^)]+\))?\s+)?enum\s+([A-Za-z0-9_]+)").unwrap();
-        let trait_re = Regex::new(r"(?m)^\s*(?:pub(?:\([^)]+\))?\s+)?trait\s+([A-Za-z0-9_]+)").unwrap();
-        let fn_re = Regex::new(r"(?m)^\s*(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)").unwrap();
-        let use_re = Regex::new(r"(?m)^\s*use\s+([^;]+);").unwrap();
+        let spec = JustEngine::parse_str(rel_str, content);
+        for recipe in &spec.recipes {
+                let rec_id = format!("recipe_{}_{}", sanitize_id(rel_str), recipe.name);
+                let loc = format!("L{}", recipe.line_number);
 
-        for (line_num, line) in content.lines().enumerate() {
-            let l_num = line_num + 1;
+                graph.add_node(GraphNode {
+                    id: rec_id.clone(),
+                    label: recipe.name.clone(),
+                    file_type: "recipe".to_string(),
+                    source_file: rel_str.to_string(),
+                    source_location: loc,
+                    community: 0,
+                    degree: None,
+                    signature: recipe.doc.clone(),
+                    provenance: "EXTRACTED".to_string(),
+                });
 
-            if let Some(caps) = struct_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("struct_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "struct".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
                 graph.add_edge(GraphEdge {
                     source: file_node_id.to_string(),
-                    target: sym_id,
+                    target: rec_id.clone(),
                     relation: "defines".to_string(),
+                    provenance: EdgeProvenance::Extracted,
                 });
-            } else if let Some(caps) = enum_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("enum_{}_{}", sanitize_id(rel_str), name);
+
+                for dep in &recipe.dependencies {
+                    let dep_id = format!("recipe_{}_{}", sanitize_id(rel_str), dep);
+                    graph.add_edge(GraphEdge {
+                        source: rec_id.clone(),
+                        target: dep_id,
+                        relation: "depends_on".to_string(),
+                        provenance: EdgeProvenance::Extracted,
+                    });
+                }
+            }
+    }
+
+    fn parse_treesitter(
+        lang: SupportedLanguage,
+        rel_str: &str,
+        file_node_id: &str,
+        content: &str,
+        graph: &mut CodeGraph,
+    ) {
+        let Ok(summary) = TreeSitterEngine::parse_str(lang, rel_str, content) else {
+            return;
+        };
+
+        // Track symbol ids to map calls
+        let mut symbol_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        for sym in &summary.symbols {
+            let sym_id = format!(
+                "{}_{}_{}",
+                sym.kind.as_str(),
+                sanitize_id(rel_str),
+                sanitize_id(&sym.name)
+            );
+            symbol_map.insert(sym.name.clone(), sym_id.clone());
+
+            graph.add_node(GraphNode {
+                id: sym_id.clone(),
+                label: sym.name.clone(),
+                file_type: sym.kind.as_str().to_string(),
+                source_file: rel_str.to_string(),
+                source_location: sym.span.source_location(),
+                community: 0,
+                degree: None,
+                signature: sym.signature.clone(),
+                provenance: "EXTRACTED".to_string(),
+            });
+
+            graph.add_edge(GraphEdge {
+                source: file_node_id.to_string(),
+                target: sym_id,
+                relation: "defines".to_string(),
+                provenance: EdgeProvenance::Extracted,
+            });
+        }
+
+        // Imports
+        for imp in &summary.imports {
+            let mod_id = format!("mod_{}", sanitize_id(&imp.source_module));
+            graph.add_node(GraphNode {
+                id: mod_id.clone(),
+                label: imp.source_module.clone(),
+                file_type: "import".to_string(),
+                source_file: rel_str.to_string(),
+                source_location: imp.span.source_location(),
+                community: 0,
+                degree: None,
+                signature: None,
+                provenance: "EXTRACTED".to_string(),
+            });
+
+            graph.add_edge(GraphEdge {
+                source: file_node_id.to_string(),
+                target: mod_id,
+                relation: "imports".to_string(),
+                provenance: EdgeProvenance::Extracted,
+            });
+        }
+
+        // Calls
+        for call in &summary.calls {
+            let caller_id = call
+                .caller_scope
+                .as_ref()
+                .and_then(|scope| symbol_map.get(scope))
+                .cloned()
+                .unwrap_or_else(|| file_node_id.to_string());
+
+            let target_id = symbol_map
+                .get(&call.callee)
+                .cloned()
+                .unwrap_or_else(|| format!("fn_{}", sanitize_id(&call.callee)));
+
+            // Add placeholder node if not defined
+            if !graph.nodes.iter().any(|n| n.id == target_id) {
                 graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "enum".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = trait_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("trait_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "trait".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = fn_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("fn_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: format!("{}()", name),
+                    id: target_id.clone(),
+                    label: format!("{}()", call.callee),
                     file_type: "function".to_string(),
                     source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
+                    source_location: call.span.source_location(),
                     community: 0,
                     degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = use_re.captures(line) {
-                let imported = caps[1].trim();
-                let mod_name = imported.split("::").next().unwrap_or(imported);
-                let import_id = format!("mod_{}", sanitize_id(mod_name));
-                graph.add_node(GraphNode {
-                    id: import_id.clone(),
-                    label: mod_name.to_string(),
-                    file_type: "import".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: import_id,
-                    relation: "imports".to_string(),
+                    signature: None,
+                    provenance: "INFERRED".to_string(),
                 });
             }
-        }
-    }
 
-    fn parse_typescript(
-        _path: &Path,
-        rel_str: &str,
-        file_node_id: &str,
-        content: &str,
-        graph: &mut CodeGraph,
-    ) {
-        let class_re = Regex::new(r"(?m)^\s*(?:export\s+)?(?:default\s+)?class\s+([A-Za-z0-9_]+)").unwrap();
-        let interface_re = Regex::new(r"(?m)^\s*(?:export\s+)?interface\s+([A-Za-z0-9_]+)").unwrap();
-        let fn_re = Regex::new(r"(?m)^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z0-9_]+)").unwrap();
-        let import_re = Regex::new(r#"(?m)^\s*import\s+.*from\s+['"]([^'"]+)['"]"#).unwrap();
-
-        for (line_num, line) in content.lines().enumerate() {
-            let l_num = line_num + 1;
-
-            if let Some(caps) = class_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("class_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "class".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = interface_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("iface_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "interface".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = fn_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("fn_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: format!("{}()", name),
-                    file_type: "function".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = import_re.captures(line) {
-                let mod_name = &caps[1];
-                let import_id = format!("import_{}", sanitize_id(mod_name));
-                graph.add_node(GraphNode {
-                    id: import_id.clone(),
-                    label: mod_name.to_string(),
-                    file_type: "import".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: import_id,
-                    relation: "imports".to_string(),
-                });
-            }
-        }
-    }
-
-    fn parse_python(
-        _path: &Path,
-        rel_str: &str,
-        file_node_id: &str,
-        content: &str,
-        graph: &mut CodeGraph,
-    ) {
-        let class_re = Regex::new(r"(?m)^\s*class\s+([A-Za-z0-9_]+)").unwrap();
-        let fn_re = Regex::new(r"(?m)^\s*(?:async\s+)?def\s+([A-Za-z0-9_]+)").unwrap();
-        let import_re = Regex::new(r"(?m)^\s*(?:from\s+([A-Za-z0-9_.]+)\s+import|import\s+([A-Za-z0-9_.]+))").unwrap();
-
-        for (line_num, line) in content.lines().enumerate() {
-            let l_num = line_num + 1;
-
-            if let Some(caps) = class_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("class_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "class".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = fn_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("def_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: format!("{}()", name),
-                    file_type: "function".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = import_re.captures(line) {
-                let mod_name = caps.get(1).or_else(|| caps.get(2)).map(|m| m.as_str()).unwrap_or("");
-                let import_id = format!("import_{}", sanitize_id(mod_name));
-                graph.add_node(GraphNode {
-                    id: import_id.clone(),
-                    label: mod_name.to_string(),
-                    file_type: "import".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: import_id,
-                    relation: "imports".to_string(),
-                });
-            }
-        }
-    }
-
-    fn parse_cpp(
-        _path: &Path,
-        rel_str: &str,
-        file_node_id: &str,
-        content: &str,
-        graph: &mut CodeGraph,
-    ) {
-        let class_re = Regex::new(r"(?m)^\s*(?:class|struct)\s+([A-Za-z0-9_]+)").unwrap();
-        let inc_re = Regex::new(r#"(?m)^\s*#include\s+[<"]([^>"]+)[>"]"#).unwrap();
-
-        for (line_num, line) in content.lines().enumerate() {
-            let l_num = line_num + 1;
-
-            if let Some(caps) = class_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("cpp_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "class".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = inc_re.captures(line) {
-                let header = &caps[1];
-                let inc_id = format!("inc_{}", sanitize_id(header));
-                graph.add_node(GraphNode {
-                    id: inc_id.clone(),
-                    label: header.to_string(),
-                    file_type: "include".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: inc_id,
-                    relation: "includes".to_string(),
-                });
-            }
-        }
-    }
-
-    fn parse_go(
-        _path: &Path,
-        rel_str: &str,
-        file_node_id: &str,
-        content: &str,
-        graph: &mut CodeGraph,
-    ) {
-        let type_re = Regex::new(r"(?m)^\s*type\s+([A-Za-z0-9_]+)\s+(?:struct|interface)").unwrap();
-        let fn_re = Regex::new(r"(?m)^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)\(").unwrap();
-
-        for (line_num, line) in content.lines().enumerate() {
-            let l_num = line_num + 1;
-
-            if let Some(caps) = type_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("go_type_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: name.to_string(),
-                    file_type: "type".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            } else if let Some(caps) = fn_re.captures(line) {
-                let name = &caps[1];
-                let sym_id = format!("go_fn_{}_{}", sanitize_id(rel_str), name);
-                graph.add_node(GraphNode {
-                    id: sym_id.clone(),
-                    label: format!("{}()", name),
-                    file_type: "function".to_string(),
-                    source_file: rel_str.to_string(),
-                    source_location: format!("L{}", l_num),
-                    community: 0,
-                    degree: None,
-                });
-                graph.add_edge(GraphEdge {
-                    source: file_node_id.to_string(),
-                    target: sym_id,
-                    relation: "defines".to_string(),
-                });
-            }
+            graph.add_edge(GraphEdge {
+                source: caller_id,
+                target: target_id,
+                relation: "calls".to_string(),
+                provenance: EdgeProvenance::Inferred,
+            });
         }
     }
 }
 
-fn sanitize_id(s: &str) -> String {
+pub fn sanitize_id(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect()

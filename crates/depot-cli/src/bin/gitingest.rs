@@ -29,6 +29,10 @@ struct IngestCli {
     /// exclude glob patterns
     #[argh(option, short = 'e')]
     exclude: Vec<String>,
+
+    /// produce high-density symbol outline only
+    #[argh(switch)]
+    outline: bool,
 }
 
 fn main() {
@@ -50,6 +54,7 @@ fn main() {
         format,
         include_patterns: cli.include,
         exclude_patterns: cli.exclude,
+        outline_only: cli.outline,
     };
 
     let (digest, stats) = ingest_codebase(&target_path, &config);

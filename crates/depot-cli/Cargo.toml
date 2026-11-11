@@ -17,8 +17,16 @@ path = "src/bin/gitingest.rs"
 name = "depot-graph"
 path = "src/bin/depot_graph.rs"
 
+[[bin]]
+name = "graphify"
+path = "src/bin/graphify.rs"
+
 [dependencies]
 depot-core.workspace = true
+depot-treesitter.workspace = true
+depot-re.workspace = true
+depot-migrate.workspace = true
+depot-forge.workspace = true
 depot-ingest.workspace = true
 depot-graph.workspace = true
 argh.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "depot-re"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+goblin.workspace = true
+iced-x86.workspace = true
+serde.workspace = true
+zerocopy.workspace = true
